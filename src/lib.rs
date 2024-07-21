@@ -40,7 +40,7 @@ fn recursive_unpack_rlp(
         } else {
             let ret = bytes
                 .get(cursor..(cursor + len as usize))
-                .expect("not enough bytes");
+                .ok_or(DecodeError::MissingBytes)?;
             cursor += len as usize;
 
             vec![RecursiveBytes::Bytes(ret)]
@@ -53,14 +53,14 @@ fn recursive_unpack_rlp(
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
-            .expect("not enough bytes");
+            .ok_or(DecodeError::MissingBytes)?;
         cursor += len_bytes_len as usize;
 
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
         let ret = bytes
             .get(cursor..(cursor + len as usize))
-            .expect("not enough bytes");
+            .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
         vec![RecursiveBytes::Bytes(ret)]
@@ -68,7 +68,7 @@ fn recursive_unpack_rlp(
         let len = disc - 192;
         let list_bytes = bytes
             .get(cursor..(cursor + len as usize))
-            .expect("not enough bytes");
+            .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
         // we want to represent empty lists so don't remove them
@@ -80,13 +80,13 @@ fn recursive_unpack_rlp(
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
-            .expect("not enough bytes");
+            .ok_or(DecodeError::MissingBytes)?;
         cursor += len_bytes_len as usize;
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
         let list_bytes = bytes
             .get(cursor..(cursor + len as usize))
-            .expect("not enough bytes");
+            .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
         vec![RecursiveBytes::Recursive(recursive_unpack_rlp(
