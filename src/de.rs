@@ -3,33 +3,22 @@ use std::collections::VecDeque;
 
 use crate::{unpack_rlp, DecodeError, RecursiveBytes, Rlp};
 use paste::paste;
-use serde::de::SeqAccess;
+use serde::de::{EnumAccess, SeqAccess, VariantAccess};
 use serde::{Deserialize, Deserializer};
 
 macro_rules! parse_int {
-    ($b:literal) => {
+    ($ty:ty) => {
         paste! {
-            fn [<parse_i $b>](&mut self) -> Result<[<i $b>], DecodeError> {
-                let bytes = self.need_bytes_len::<{$b / 8}>()?;
-                Ok([<i $b>]::from_be_bytes(bytes))
-            }
-        }
-    };
-}
-
-macro_rules! parse_uint {
-    ($b:literal) => {
-        paste! {
-            fn [<parse_u $b>](&mut self) -> Result<[<u $b>], DecodeError> {
-                let bytes = self.need_bytes_len::<{$b / 8}>()?;
-                Ok([<u $b>]::from_be_bytes(bytes))
+            fn [<parse_ $ty>](&mut self) -> Result<[<$ty>], DecodeError> {
+                let bytes = self.need_bytes_len::<{std::mem::size_of::<$ty>()}>()?;
+                Ok([<$ty>]::from_be_bytes(bytes))
             }
         }
     };
 }
 
 #[cfg(test)]
-fn from_rlp<'a, T>(rlp: &'a mut Rlp) -> Result<T, DecodeError>
+fn from_rlp<'a, T>(rlp: &'a mut Rlp<'a>) -> Result<T, DecodeError>
 where
     T: Deserialize<'a>,
 {
@@ -45,37 +34,111 @@ where
     T::deserialize(&mut rlp)
 }
 
-impl<'de, 'a> SeqAccess<'de> for Rlp<'a> {
+struct Seq<'a, 'de: 'a> {
+    de: &'a mut Rlp<'de>,
+}
+
+impl<'a, 'de> Seq<'a, 'de> {
+    fn new(de: &'a mut Rlp<'de>) -> Self {
+        Seq { de }
+    }
+}
+
+impl<'de, 'a> SeqAccess<'de> for Seq<'a, 'de> {
     type Error = DecodeError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        let el = self.0.pop_front().expect("TODO");
+        let el = self.de.0.pop_front().ok_or(DecodeError::MissingBytes)?;
         let rlp = &mut Rlp(VecDeque::from([el]));
         seed.deserialize(rlp).map(Some)
     }
 }
 
+struct Enum<'a, 'de: 'a> {
+    de: &'a mut Rlp<'de>,
+}
+
+impl<'a, 'de> Enum<'a, 'de> {
+    fn new(de: &'a mut Rlp<'de>) -> Self {
+        Enum { de }
+    }
+}
+
+impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
+    type Error = DecodeError;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        todo!()
+        // let bytes = self.de.need_bytes()?.clone();
+        // let mut rlp = Rlp(vec![RecursiveBytes::Bytes(bytes)].into());
+        // let val = seed.deserialize(&mut rlp)?;
+        // Ok((val, self))
+    }
+}
+
+impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
+    type Error = DecodeError;
+
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        todo!()
+    }
+
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        todo!()
+    }
+
+    fn struct_variant<V>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        todo!()
+    }
+}
+
 impl<'a> Rlp<'a> {
-    fn need_bytes(&self) -> Result<&[u8], DecodeError> {
-        let first_rec = self.0.front().ok_or(DecodeError::MissingBytes)?;
+    fn need_bytes(&mut self) -> Result<&[u8], DecodeError> {
+        let first_rec = self.0.pop_front().ok_or(DecodeError::MissingBytes)?;
         let RecursiveBytes::Bytes(bytes) = first_rec else {
             return Err(DecodeError::ExpectedBytes);
         };
         Ok(bytes)
     }
 
-    fn need_nested(&self) -> Result<&VecDeque<RecursiveBytes>, DecodeError> {
-        let first_rec = self.0.front().ok_or(DecodeError::MissingBytes)?;
+    fn need_nested(&mut self) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
+        let first_rec = self.0.pop_front().ok_or(DecodeError::MissingBytes)?;
         let RecursiveBytes::Nested(rec) = first_rec else {
             return Err(DecodeError::ExpectedBytes);
         };
         Ok(rec)
     }
 
-    fn need_bytes_len<const S: usize>(&self) -> Result<[u8; S], DecodeError> {
+    fn need_next(&mut self) -> Result<RecursiveBytes, DecodeError> {
+        let first_rec = self.0.pop_front().ok_or(DecodeError::MissingBytes)?;
+        Ok(first_rec)
+    }
+
+    fn need_bytes_len<const S: usize>(&mut self) -> Result<[u8; S], DecodeError> {
         let bytes = self.need_bytes()?;
         if bytes.len() != S {
             return Err(DecodeError::InvalidLength);
@@ -84,26 +147,25 @@ impl<'a> Rlp<'a> {
     }
 
     fn parse_bool(&mut self) -> Result<bool, DecodeError> {
-        let bytes = dbg!(self.need_bytes_len::<1>())?;
+        let bytes = self.need_bytes_len::<1>()?;
         let byte = bytes[0];
         let bool_val = match byte {
             0 => false,
             1 => true,
             _ => return Err(DecodeError::InvalidBytes),
         };
-        self.0.pop_front();
         Ok(bool_val)
     }
 
-    parse_int!(8);
-    parse_int!(16);
-    parse_int!(32);
-    parse_int!(64);
+    parse_int!(i8);
+    parse_int!(i16);
+    parse_int!(i32);
+    parse_int!(i64);
 
-    parse_uint!(8);
-    parse_uint!(16);
-    parse_uint!(32);
-    parse_uint!(64);
+    parse_int!(u8);
+    parse_int!(u16);
+    parse_int!(u32);
+    parse_int!(u64);
 
     fn parse_char(&mut self) -> Result<char, DecodeError> {
         let bytes = self.need_bytes_len::<1>()?;
@@ -112,7 +174,7 @@ impl<'a> Rlp<'a> {
     }
 
     fn parse_string(&mut self) -> Result<Cow<'_, str>, DecodeError> {
-        let bytes = dbg!(self.need_bytes())?;
+        let bytes = self.need_bytes()?;
         Ok(String::from_utf8_lossy(bytes))
     }
 
@@ -122,15 +184,27 @@ impl<'a> Rlp<'a> {
 
     fn parse_seq(&mut self) -> Result<Rlp, DecodeError> {
         let seq = dbg!(self.need_nested())?;
-        let rlp = Rlp(seq.clone()); // TODO meh
+        let rlp = Rlp(seq);
         Ok(rlp)
+    }
+
+    fn parse_enum(
+        &mut self,
+        name: &'static str,
+        variants: &'static [&'static str],
+    ) -> Result<Rlp, DecodeError> {
+        let index = variants
+            .iter()
+            .position(|var| var == &name)
+            .expect("invalid enum variant name");
+        todo!()
     }
 }
 
-impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
+impl<'de, 'a> Deserializer<'de> for &'a mut Rlp<'de> {
     type Error = DecodeError;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -200,14 +274,14 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
         visitor.visit_u64(self.parse_u64()?)
     }
 
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
         unimplemented!()
     }
 
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -225,7 +299,7 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_str(&self.parse_string()?)
+        visitor.visit_str(dbg!(&self.parse_string()?))
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -253,46 +327,56 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        todo!()
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        self.need_bytes_len::<0>()?;
+        visitor.visit_unit()
     }
 
     fn deserialize_unit_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        self.deserialize_unit(visitor)
     }
 
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        visitor.visit_newtype_struct(self)
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(self.parse_seq()?)
+        // visitor.visit_seq(Seq::new(self))
+        // let mut rlp = self.parse_seq()?;
+        // visitor.visit_seq(Seq::new(&mut rlp))
+        // TODO use need_nested but lifetime issue
+        let nested = self.0.pop_front().ok_or(DecodeError::ExpectedList)?;
+        let RecursiveBytes::Nested(rec) = nested else {
+            return Err(DecodeError::ExpectedBytes);
+        };
+        let rlp = &mut Rlp(rec);
+        visitor.visit_seq(Seq::new(rlp))
     }
 
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -301,17 +385,17 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
 
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        self.deserialize_seq(visitor)
     }
 
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -320,14 +404,14 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
-        fields: &'static [&'static str],
+        _name: &'static str,
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        self.deserialize_seq(visitor)
     }
 
     fn deserialize_enum<V>(
@@ -339,31 +423,31 @@ impl<'de, 'a> Deserializer<'de> for &mut Rlp<'a> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        visitor.visit_enum(Enum::new(self))
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-    use std::collections::VecDeque;
+    use serde::Deserialize;
 
     use super::from_rlp;
     use crate::{from_bytes, DecodeError, RecursiveBytes, Rlp};
+    use std::borrow::Cow;
 
     #[test]
     fn de_i8() {
@@ -423,12 +507,37 @@ mod tests {
         assert_eq!(bools, [false, true]);
 
         let cat_dog: [String; 2] =
-            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g'][..]).unwrap();
+            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
 
         // alternative to &str
         let cat_dog: [Cow<'_, str>; 2] =
-            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g'][..]).unwrap();
+            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
+    }
+
+    #[test]
+    fn de_struct() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Dog {
+            name: String,
+            sound: String,
+            age: u8,
+        }
+
+        let name = String::from("doggo");
+        let sound = String::from("yo");
+        let age = 10u8;
+
+        let disc = 0xc0 + 2 + ((name.len() + sound.len() + u8::BITS as usize / 8) as u8);
+        let mut bytes = vec![disc];
+        bytes.push(0x80 + name.len() as u8);
+        bytes.append(&mut dbg!(name.as_bytes()).to_vec());
+        bytes.push(0x80 + sound.len() as u8);
+        bytes.append(&mut dbg!(sound.as_bytes()).to_vec());
+        bytes.push(age);
+
+        let dog: Dog = from_bytes(&bytes).unwrap();
+        assert_eq!(dog, Dog { name, sound, age })
     }
 }
