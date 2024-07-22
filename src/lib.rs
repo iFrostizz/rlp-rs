@@ -47,16 +47,16 @@ impl std::error::Error for DecodeError {}
 #[derive(Debug)]
 pub struct Rlp<'a>(VecDeque<RecursiveBytes<'a>>);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum RecursiveBytes<'a> {
     Bytes(&'a [u8]),
-    Nested(Vec<RecursiveBytes<'a>>),
+    Nested(VecDeque<RecursiveBytes<'a>>),
 }
 
 impl RecursiveBytes<'_> {
     #[cfg(test)]
     fn empty_list() -> Self {
-        RecursiveBytes::Nested(Vec::new())
+        RecursiveBytes::Nested(VecDeque::new())
     }
 }
 
@@ -64,11 +64,11 @@ impl RecursiveBytes<'_> {
 fn recursive_unpack_rlp(
     bytes: &[u8],
     mut cursor: usize,
-) -> Result<Vec<RecursiveBytes>, DecodeError> {
+) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
     let disc = if let Some(disc) = bytes.get(cursor) {
         *disc
     } else {
-        return Ok(Vec::new());
+        return Ok(VecDeque::new());
     };
     cursor += 1;
 
@@ -76,18 +76,18 @@ fn recursive_unpack_rlp(
         // TODO change me, maybe remove vec
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
-        vec![RecursiveBytes::Bytes(ret)]
+        vec![RecursiveBytes::Bytes(ret)].into()
     } else if disc <= 183 {
         let len = disc - 128;
         if len == 0 {
-            vec![] // this is just a little space optimisation to avoid Bytes([])
+            VecDeque::new() // this is just a little space optimisation to avoid Bytes([])
         } else {
             let ret = bytes
                 .get(cursor..(cursor + len as usize))
                 .ok_or(DecodeError::MissingBytes)?;
             cursor += len as usize;
 
-            vec![RecursiveBytes::Bytes(ret)]
+            vec![RecursiveBytes::Bytes(ret)].into()
         }
     } else if disc <= 191 {
         let len_bytes_len = disc - 183;
@@ -107,7 +107,7 @@ fn recursive_unpack_rlp(
             .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
-        vec![RecursiveBytes::Bytes(ret)]
+        vec![RecursiveBytes::Bytes(ret)].into()
     } else if disc <= 247 {
         let len = disc - 192;
         let list_bytes = bytes
@@ -116,7 +116,7 @@ fn recursive_unpack_rlp(
         cursor += len as usize;
 
         // we want to represent empty lists so don't remove them
-        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)]
+        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)].into()
     } else {
         let len_bytes_len = disc - 247;
         let mut len_bytes_base = [0; 8];
@@ -131,7 +131,7 @@ fn recursive_unpack_rlp(
             .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
-        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)]
+        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)].into()
     };
 
     ret.append(&mut recursive_unpack_rlp(bytes, cursor)?);
@@ -139,7 +139,7 @@ fn recursive_unpack_rlp(
     Ok(ret)
 }
 
-pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Vec<RecursiveBytes>, DecodeError> {
+pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
     // Ok(Rlp(recursive_unpack_rlp(bytes, 0)?))
     recursive_unpack_rlp(bytes, 0)
 }
@@ -147,6 +147,8 @@ pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Vec<RecursiveBytes>, DecodeErro
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::{unpack_rlp, RecursiveBytes};
 
     #[test]
@@ -179,10 +181,13 @@ mod tests {
         let unpacked = unpack_rlp(&cat_dog_rlp).unwrap();
         assert_eq!(
             unpacked,
-            vec![RecursiveBytes::Nested(vec![
-                RecursiveBytes::Bytes(&[b'd', b'o', b'g'][..]),
-                RecursiveBytes::Bytes(&[b'c', b'a', b't'][..]),
-            ])]
+            vec![RecursiveBytes::Nested(
+                vec![
+                    RecursiveBytes::Bytes(&[b'd', b'o', b'g'][..]),
+                    RecursiveBytes::Bytes(&[b'c', b'a', b't'][..]),
+                ]
+                .into()
+            )]
         );
     }
 
@@ -195,7 +200,7 @@ mod tests {
     #[test]
     fn unpack_empty_list() {
         let unpacked = unpack_rlp(&[0xc0][..]).unwrap();
-        assert_eq!(unpacked, vec![RecursiveBytes::Nested(Vec::new())]);
+        assert_eq!(unpacked, vec![RecursiveBytes::Nested(VecDeque::new())]);
     }
 
     #[test]
@@ -228,14 +233,20 @@ mod tests {
         let unpacked = unpack_rlp(&[0xc7, 0xc0, 0xc1, 0xc0, 0xc3, 0xc0, 0xc1, 0xc0][..]).unwrap();
         assert_eq!(
             unpacked,
-            vec![RecursiveBytes::Nested(vec![
-                RecursiveBytes::empty_list(),
-                RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()]),
-                RecursiveBytes::Nested(vec![
+            vec![RecursiveBytes::Nested(
+                vec![
                     RecursiveBytes::empty_list(),
-                    RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()]),
-                ])
-            ])]
+                    RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()].into()),
+                    RecursiveBytes::Nested(
+                        vec![
+                            RecursiveBytes::empty_list(),
+                            RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()].into()),
+                        ]
+                        .into()
+                    )
+                ]
+                .into()
+            )]
         );
     }
 
