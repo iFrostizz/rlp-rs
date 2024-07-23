@@ -44,16 +44,13 @@ impl Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-#[derive(Debug)]
-pub struct Rlp<'a>(VecDeque<RecursiveBytes<'a>>);
-
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) enum RecursiveBytes<'a> {
-    Bytes(&'a [u8]),
-    Nested(VecDeque<RecursiveBytes<'a>>),
+pub(crate) enum RecursiveBytes {
+    Bytes(Vec<u8>),
+    Nested(VecDeque<RecursiveBytes>),
 }
 
-impl RecursiveBytes<'_> {
+impl RecursiveBytes {
     #[cfg(test)]
     fn empty_list() -> Self {
         RecursiveBytes::Nested(VecDeque::new())
@@ -76,7 +73,7 @@ fn recursive_unpack_rlp(
         // TODO change me, maybe remove vec
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
-        vec![RecursiveBytes::Bytes(ret)].into()
+        vec![RecursiveBytes::Bytes(ret.to_vec())].into()
     } else if disc <= 183 {
         let len = disc - 128;
         if len == 0 {
@@ -87,7 +84,7 @@ fn recursive_unpack_rlp(
                 .ok_or(DecodeError::MissingBytes)?;
             cursor += len as usize;
 
-            vec![RecursiveBytes::Bytes(ret)].into()
+            vec![RecursiveBytes::Bytes(ret.to_vec())].into()
         }
     } else if disc <= 191 {
         let len_bytes_len = disc - 183;
@@ -107,7 +104,7 @@ fn recursive_unpack_rlp(
             .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
-        vec![RecursiveBytes::Bytes(ret)].into()
+        vec![RecursiveBytes::Bytes(ret.to_vec())].into()
     } else if disc <= 247 {
         let len = disc - 192;
         let list_bytes = bytes
@@ -160,7 +157,7 @@ mod tests {
         let unpacked = unpack_rlp(&dog_rlp).unwrap();
         assert_eq!(
             unpacked,
-            vec![RecursiveBytes::Bytes(&[b'd', b'o', b'g'][..])]
+            vec![RecursiveBytes::Bytes(vec![b'd', b'o', b'g'])]
         );
     }
 
@@ -183,8 +180,8 @@ mod tests {
             unpacked,
             vec![RecursiveBytes::Nested(
                 vec![
-                    RecursiveBytes::Bytes(&[b'd', b'o', b'g'][..]),
-                    RecursiveBytes::Bytes(&[b'c', b'a', b't'][..]),
+                    RecursiveBytes::Bytes(vec![b'd', b'o', b'g']),
+                    RecursiveBytes::Bytes(vec![b'c', b'a', b't']),
                 ]
                 .into()
             )]
@@ -207,25 +204,25 @@ mod tests {
     #[ignore = "there is no way to decode the number 0, the priority is given to the empty string"]
     fn unpack_zero() {
         let unpacked = unpack_rlp(&[0x80][..]).unwrap();
-        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(&[0][..])]);
+        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(vec![0])]);
     }
 
     #[test]
     fn unpack_null_byte() {
         let unpacked = unpack_rlp(&[0x00][..]).unwrap();
-        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(&[0][..])]);
+        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(vec![0])]);
     }
 
     #[test]
     fn unpack_0f() {
         let unpacked = unpack_rlp(&[0x0f][..]).unwrap();
-        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(&[0x0f][..])]);
+        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(vec![0x0f])]);
     }
 
     #[test]
     fn unpack_two_bytes() {
         let unpacked = unpack_rlp(&[0x82, 0x04, 0x00][..]).unwrap();
-        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(&[0x04, 0x00][..])]);
+        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(vec![0x04, 0x00])]);
     }
 
     #[test]
@@ -264,15 +261,12 @@ mod tests {
         .unwrap();
         assert_eq!(
             unpacked,
-            vec![RecursiveBytes::Bytes(
-                &[
-                    b'L', b'o', b'r', b'e', b'm', b' ', b'i', b'p', b's', b'u', b'm', b' ', b'd',
-                    b'o', b'l', b'o', b'r', b' ', b's', b'i', b't', b' ', b'a', b'm', b'e', b' ',
-                    b't', b' ', b'c', b'o', b'n', b's', b'e', b'c', b't', b'e', b't', b'u', b'r',
-                    b' ', b'a', b'd', b'i', b'p', b'i', b's', b'i', b'c', b'i', b'n', b'g', b' ',
-                    b'e', b'l', b'i', b't',
-                ][..]
-            )]
+            vec![RecursiveBytes::Bytes(vec![
+                b'L', b'o', b'r', b'e', b'm', b' ', b'i', b'p', b's', b'u', b'm', b' ', b'd', b'o',
+                b'l', b'o', b'r', b' ', b's', b'i', b't', b' ', b'a', b'm', b'e', b' ', b't', b' ',
+                b'c', b'o', b'n', b's', b'e', b'c', b't', b'e', b't', b'u', b'r', b' ', b'a', b'd',
+                b'i', b'p', b'i', b's', b'i', b'c', b'i', b'n', b'g', b' ', b'e', b'l', b'i', b't',
+            ])]
         );
     }
 }
