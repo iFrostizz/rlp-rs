@@ -165,7 +165,7 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
     where
         V: serde::de::DeserializeSeed<'de>,
     {
-        let bytes = self.de.need_bytes()?.clone();
+        let bytes = self.de.need_bytes()?;
         let mut rlp = Rlp(vec![RecursiveBytes::Bytes(bytes)].into());
         let val = seed.deserialize(&mut rlp)?;
         Ok((val, self))
@@ -443,6 +443,7 @@ mod tests {
     use super::{from_rlp, Rlp};
     use crate::{from_bytes, DecodeError, RecursiveBytes};
     use serde::Deserialize;
+    use serde_repr::Deserialize_repr;
     use std::borrow::Cow;
 
     #[test]
@@ -535,5 +536,22 @@ mod tests {
 
         let dog: Dog = from_bytes(bytes).unwrap();
         assert_eq!(dog, Dog { name, sound, age })
+    }
+
+    #[test]
+    fn de_enum() {
+        #[derive(Debug, PartialEq, Deserialize_repr)]
+        #[repr(u8)]
+        enum Food {
+            Pizza = 0,
+            Ramen = 1,
+            Kebab = 2,
+        }
+
+        assert_eq!(from_bytes::<Food>(vec![0x00]).unwrap(), Food::Pizza);
+        assert_eq!(from_bytes::<Food>(vec![0x01]).unwrap(), Food::Ramen);
+        assert_eq!(from_bytes::<Food>(vec![0x02]).unwrap(), Food::Kebab);
+        assert!(from_bytes::<Food>(vec![0x03]).is_err());
+        assert!(from_bytes::<Food>(vec![255]).is_err());
     }
 }
