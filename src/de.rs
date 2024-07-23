@@ -45,7 +45,6 @@ impl Rlp {
     }
 
     fn need_bytes(&mut self) -> Result<Vec<u8>, DecodeError> {
-        // let RecursiveBytes::Bytes(bytes) = self.0.take().ok_or(DecodeError::MissingBytes)? else {
         let RecursiveBytes::Bytes(bytes) = self.0.pop_front().ok_or(DecodeError::MissingBytes)?
         else {
             return Err(DecodeError::ExpectedBytes);
@@ -54,8 +53,8 @@ impl Rlp {
     }
 
     fn need_nested(&mut self) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
-        // let RecursiveBytes::Nested(rec) = self.0.take().ok_or(DecodeError::MissingBytes)? else {
-        let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(DecodeError::MissingBytes)?
+        let RecursiveBytes::Nested(rec) =
+            dbg!(self).0.pop_front().ok_or(DecodeError::MissingBytes)?
         else {
             return Err(DecodeError::ExpectedList);
         };
@@ -63,13 +62,8 @@ impl Rlp {
     }
 
     fn need_next(&mut self) -> Result<RecursiveBytes, DecodeError> {
-        // self.0.take().ok_or(DecodeError::MissingBytes)
         self.0.pop_front().ok_or(DecodeError::MissingBytes)
     }
-
-    // fn peek_next(&self) -> Result<&RecursiveBytes, DecodeError> {
-    //     // self.0.as_ref().ok_or(DecodeError::MissingBytes)
-    // }
 
     fn need_bytes_len<const S: usize>(&mut self) -> Result<[u8; S], DecodeError> {
         let bytes = self.need_bytes()?;
@@ -163,8 +157,7 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
     where
         V: serde::de::DeserializeSeed<'de>,
     {
-        let rec = self.de.need_next()?;
-        let val = seed.deserialize(&mut Rlp(vec![rec].into()))?;
+        let val = seed.deserialize(&mut *self.de)?;
         Ok((val, self))
     }
 }
@@ -305,7 +298,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     {
         // TODO visit_borrowed_str
         // https://serde.rs/lifetimes.html
-        visitor.visit_string(self.parse_string()?)
+        visitor.visit_string(dbg!(self.parse_string()?))
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -437,7 +430,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
             RecursiveBytes::Nested(recs) => {
                 // flatten structure
                 *self = Rlp::new(recs);
-                self.deserialize_str(visitor)
+                dbg!(self).deserialize_str(visitor)
             }
         }
     }
@@ -630,8 +623,9 @@ mod tests {
 
     #[test]
     fn de_enum_struct() {
-        // vec!["Move", [-1, -1]]
+        // ["Move", [-1, -1]]
         let mut message = Vec::new();
+        message.push(0xc0 + "Move".len() as u8 + (i32::BITS / 8 * 2) as u8 + 4);
         message.push(0x80 + "Move".len() as u8);
         message.extend_from_slice("Move".as_bytes());
         message.push(0xc0 + (i32::BITS / 8 * 2) as u8 + 2);
@@ -642,16 +636,19 @@ mod tests {
 
         assert_eq!(
             unpack_rlp(&message).unwrap(),
-            vec![
-                RecursiveBytes::Bytes("Move".as_bytes().to_vec()),
-                RecursiveBytes::Nested(
-                    vec![
-                        RecursiveBytes::Bytes((-1i32).to_be_bytes().to_vec()),
-                        RecursiveBytes::Bytes((-1i32).to_be_bytes().to_vec())
-                    ]
-                    .into()
-                )
-            ]
+            [RecursiveBytes::Nested(
+                vec![
+                    RecursiveBytes::Bytes("Move".as_bytes().to_vec()),
+                    RecursiveBytes::Nested(
+                        vec![
+                            RecursiveBytes::Bytes((-1i32).to_be_bytes().to_vec()),
+                            RecursiveBytes::Bytes((-1i32).to_be_bytes().to_vec())
+                        ]
+                        .into()
+                    )
+                ]
+                .into()
+            )]
         );
 
         assert_eq!(
