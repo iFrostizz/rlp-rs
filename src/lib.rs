@@ -5,6 +5,7 @@ mod de;
 pub use de::from_bytes;
 
 mod ser;
+pub use ser::to_bytes;
 
 #[derive(Debug)]
 pub enum DecodeError {

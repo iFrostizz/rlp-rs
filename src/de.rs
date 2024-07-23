@@ -167,7 +167,8 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 
     fn unit_variant(self) -> Result<(), Self::Error> {
         // TODO is it correct ?
-        Ok(())
+        // Ok(())
+        todo!() // TODO test this
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -620,6 +621,8 @@ mod tests {
             Message::Write(String::from("Hello world"))
         )
     }
+
+    // TODO enum tuple tests
 
     #[test]
     fn de_enum_struct() {
