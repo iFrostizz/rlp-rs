@@ -36,8 +36,11 @@ impl Display for DecodeError {
             DecodeError::MissingBytes => {
                 formatter.write_str("missing bytes after discriminant byte")
             }
-            // DecodeError::TrailingBytes => unimplemented!(),
-            _ => unimplemented!(),
+            DecodeError::ExpectedList => formatter.write_str("expected list, got bytes"),
+            DecodeError::ExpectedBytes => formatter.write_str("expected bytes, got list"),
+            DecodeError::InvalidBytes => formatter.write_str("invalid bytes"),
+            DecodeError::InvalidLength => formatter.write_str("invalid length"),
+            DecodeError::TrailingBytes => formatter.write_str("trailing bytes"),
         }
     }
 }
@@ -136,8 +139,7 @@ fn recursive_unpack_rlp(
 }
 
 pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
-    // Ok(Rlp(recursive_unpack_rlp(bytes, 0)?))
-    recursive_unpack_rlp(bytes, 0)
+    Ok(recursive_unpack_rlp(bytes, 0)?)
 }
 
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples
@@ -149,9 +151,9 @@ mod tests {
 
     #[test]
     fn unpack_dog() {
-        let dog_bites = &mut "dog".as_bytes().to_vec();
+        let dog_bites = "dog".as_bytes();
         let mut dog_rlp = vec![0x83];
-        dog_rlp.append(dog_bites);
+        dog_rlp.extend_from_slice(dog_bites);
 
         let unpacked = unpack_rlp(&dog_rlp).unwrap();
         assert_eq!(
@@ -162,13 +164,13 @@ mod tests {
 
     #[test]
     fn unpack_cat_dog_list() {
-        let dog_bites = &mut "dog".as_bytes().to_vec();
+        let dog_bites = "dog".as_bytes();
         let mut dog_rlp = vec![0x83];
-        dog_rlp.append(dog_bites);
+        dog_rlp.extend_from_slice(dog_bites);
 
-        let cat_bites = &mut "cat".as_bytes().to_vec();
+        let cat_bites = "cat".as_bytes();
         let mut cat_rlp = vec![0x83];
-        cat_rlp.append(cat_bites);
+        cat_rlp.extend_from_slice(cat_bites);
 
         let mut cat_dog_rlp = vec![0xc8];
         cat_dog_rlp.append(&mut dog_rlp);
