@@ -17,3 +17,6 @@ RLP Encode / Decode arbitrary bytes
 - Finish implementing all deserialize types
 - Implement ser
 - Benches
+- Provide RLP-ready useful types 
+    - `Transaction` (custom `Deserialize` for type 0, 1, 2)
+    - `Block`
