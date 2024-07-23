@@ -324,7 +324,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_byte_buf(self.parse_bytes()?.to_vec())
+        visitor.visit_byte_buf(self.parse_bytes()?)
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>

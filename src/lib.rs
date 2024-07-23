@@ -69,23 +69,21 @@ fn recursive_unpack_rlp(
     };
     cursor += 1;
 
-    let mut ret = if disc <= 127 {
+    let mut unpacked = VecDeque::new();
+
+    let ret = if disc <= 127 {
         // TODO change me, maybe remove vec
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
-        vec![RecursiveBytes::Bytes(ret.to_vec())].into()
+        RecursiveBytes::Bytes(ret.to_vec())
     } else if disc <= 183 {
         let len = disc - 128;
-        if len == 0 {
-            VecDeque::new() // this is just a little space optimisation to avoid Bytes([])
-        } else {
-            let ret = bytes
-                .get(cursor..(cursor + len as usize))
-                .ok_or(DecodeError::MissingBytes)?;
-            cursor += len as usize;
+        let ret = bytes
+            .get(cursor..(cursor + len as usize))
+            .ok_or(DecodeError::MissingBytes)?;
+        cursor += len as usize;
 
-            vec![RecursiveBytes::Bytes(ret.to_vec())].into()
-        }
+        RecursiveBytes::Bytes(ret.to_vec())
     } else if disc <= 191 {
         let len_bytes_len = disc - 183;
         if len_bytes_len > 8 {
@@ -104,7 +102,7 @@ fn recursive_unpack_rlp(
             .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
-        vec![RecursiveBytes::Bytes(ret.to_vec())].into()
+        RecursiveBytes::Bytes(ret.to_vec())
     } else if disc <= 247 {
         let len = disc - 192;
         let list_bytes = bytes
@@ -113,7 +111,7 @@ fn recursive_unpack_rlp(
         cursor += len as usize;
 
         // we want to represent empty lists so don't remove them
-        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)].into()
+        RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     } else {
         let len_bytes_len = disc - 247;
         let mut len_bytes_base = [0; 8];
@@ -128,12 +126,13 @@ fn recursive_unpack_rlp(
             .ok_or(DecodeError::MissingBytes)?;
         cursor += len as usize;
 
-        vec![RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)].into()
+        RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     };
 
-    ret.append(&mut recursive_unpack_rlp(bytes, cursor)?);
+    unpacked.push_back(ret);
+    unpacked.append(&mut recursive_unpack_rlp(bytes, cursor)?);
 
-    Ok(ret)
+    Ok(unpacked)
 }
 
 pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
@@ -191,7 +190,7 @@ mod tests {
     #[test]
     fn unpack_empty_string() {
         let unpacked = unpack_rlp(&[0x80][..]).unwrap();
-        assert!(unpacked.is_empty());
+        assert_eq!(unpacked, vec![RecursiveBytes::Bytes(Vec::new())]);
     }
 
     #[test]
