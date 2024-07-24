@@ -1,19 +1,78 @@
-use crate::DecodeError;
+use crate::{pack_rlp, DecodeError, RecursiveBytes, Rlp};
 use paste::paste;
 use serde::{ser, Serialize};
+use std::collections::VecDeque;
 
-#[derive(Default)]
 pub struct Serializer {
-    output: Vec<u8>,
+    output: Rlp,
+    /// holds references to the nested data structures in the rlp representation.
+    nesting: Vec<usize>,
+}
+
+impl Serializer {
+    fn push(&mut self, rec: RecursiveBytes) {
+        self.output.0.push_back(rec);
+    }
+
+    fn len(&self) -> usize {
+        self.output.0.len()
+    }
+
+    fn get_mut(&mut self, index: usize) -> Option<&mut RecursiveBytes> {
+        self.output.0.get_mut(index)
+    }
+
+    fn get_nested_mut(&mut self, index: usize) -> Option<&mut VecDeque<RecursiveBytes>> {
+        self.get_mut(index).map(|rec| match rec {
+            RecursiveBytes::Nested(inner) => inner,
+            RecursiveBytes::Bytes(_) => panic!("invalid index pointing to Bytes"),
+        })
+    }
+
+    fn push_bytes(&mut self, bytes: Vec<u8>) {
+        // push bytes to the end of the rlp.
+        // if we are not nested, then just create a new Bytes structure with the bytes in it.
+        // if we are nested by one, retrieve the last Nested and push Bytes.
+        // if we are nested by two, do as well.
+        // when the list ends, go one level higher.
+        if let Some(index) = self.nesting.last().copied() {
+            let nested = self.get_nested_mut(index).expect("missing nested from rlp");
+            nested.push_back(RecursiveBytes::Bytes(bytes));
+        } else {
+            self.push(RecursiveBytes::Bytes(bytes));
+        }
+    }
+
+    fn new_list(&mut self) {
+        // create a new list and increase the level of nesting.
+        self.nesting.push(self.len());
+        self.push(RecursiveBytes::empty_list());
+    }
+
+    fn end_list(&mut self) {
+        // forget about the reference to the nested list and go one level higher.
+        self.nesting.pop();
+    }
+}
+
+pub(crate) fn to_rlp<T>(value: &T) -> Result<Rlp, DecodeError>
+where
+    T: Serialize,
+{
+    let mut serializer = Serializer {
+        output: Rlp::new(VecDeque::new()),
+        nesting: Vec::new(),
+    };
+    value.serialize(&mut serializer)?;
+    Ok(serializer.output)
 }
 
 pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, DecodeError>
 where
     T: Serialize,
 {
-    let mut serializer = Serializer::default();
-    value.serialize(&mut serializer)?;
-    Ok(serializer.output)
+    let rlp = to_rlp(value)?;
+    pack_rlp(rlp)
 }
 
 macro_rules! impl_int {
@@ -27,12 +86,12 @@ macro_rules! impl_int {
 }
 
 impl Serializer {
-    fn parse_num<const N: usize>(&mut self, bytes: [u8; N]) -> Option<Vec<u8>> {
-        bytes
-            .iter()
-            .position(|b| b > &0)
-            .map(|index| bytes[index..].to_vec())
-    }
+    //     fn parse_num<const N: usize>(&mut self, bytes: [u8; N]) -> Option<Vec<u8>> {
+    //         bytes
+    //             .iter()
+    //             .position(|b| b > &0)
+    //             .map(|index| bytes[index..].to_vec())
+    //     }
 
     fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), DecodeError> {
         self.serialize_slice(&bytes)
@@ -48,19 +107,19 @@ impl Serializer {
         ser::Serializer::serialize_bytes(self, bytes)
     }
 
-    fn serialize_list_len(&mut self, len: usize) -> Result<(), DecodeError> {
-        let mut bytes = if len <= 55 {
-            vec![0xc0 + len as u8]
-        } else {
-            let mut len_bytes = self.parse_num(len.to_be_bytes()).unwrap();
-            let mut bytes = vec![0xf7 + len_bytes.len() as u8];
-            bytes.append(&mut len_bytes);
-            bytes
-        };
+    //     fn serialize_list_len(&mut self, len: usize) -> Result<(), DecodeError> {
+    //         let mut bytes = if len <= 55 {
+    //             vec![0xc0 + len as u8]
+    //         } else {
+    //             let mut len_bytes = self.parse_num(len.to_be_bytes()).unwrap();
+    //             let mut bytes = vec![0xf7 + len_bytes.len() as u8];
+    //             bytes.append(&mut len_bytes);
+    //             bytes
+    //         };
 
-        self.output.append(&mut bytes);
-        Ok(())
-    }
+    //         self.output.append(&mut bytes);
+    //         Ok(())
+    //     }
 }
 
 impl<'a> ser::Serializer for &'a mut Serializer {
@@ -77,8 +136,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-        self.output.push(if v { 1 } else { 0 });
-        Ok(())
+        self.serialize_array(if v { [1] } else { [0] })
     }
 
     impl_int!(i8);
@@ -108,29 +166,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        let mut bytes = match v.len() {
-            1 if v[0] <= 127 => vec![v[0]],
-            len => {
-                if len <= 55 {
-                    let disc = 0x80 + len as u8;
-                    let mut bytes = vec![disc];
-                    bytes.extend_from_slice(v);
-                    bytes
-                } else if len as u64 <= u64::MAX {
-                    let mut len_bytes = self
-                        .parse_num((len as u64).to_be_bytes())
-                        .expect("fine because the length exceeds 55");
-                    let disc = 0xb7 + len_bytes.len() as u8;
-                    let mut bytes = vec![disc];
-                    bytes.append(&mut len_bytes);
-                    bytes.extend_from_slice(v);
-                    bytes
-                } else {
-                    return Err(DecodeError::InvalidLength);
-                }
-            }
-        };
-        self.output.append(&mut bytes);
+        self.push_bytes(v.to_vec());
         Ok(())
     }
 
@@ -187,8 +223,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         value.serialize(self)
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        self.serialize_list_len(len.ok_or(DecodeError::InvalidBytes)?)?;
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.new_list();
         Ok(self)
     }
 
@@ -251,6 +287,7 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -366,9 +403,10 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
 
 #[cfg(test)]
 mod tests {
-    use serde::Serialize;
-
     use super::to_bytes;
+    use crate::ser::to_rlp;
+    use crate::{pack_rlp, RecursiveBytes, Rlp};
+    use serde::Serialize;
 
     #[test]
     fn ser_i8() {
@@ -384,6 +422,10 @@ mod tests {
     #[test]
     fn ser_char() {
         let ch = 'A';
+
+        let rlp = to_rlp(&ch).unwrap();
+        assert_eq!(rlp.0, vec![RecursiveBytes::Bytes(vec![0x41])]);
+
         let serialized = to_bytes(&ch).unwrap();
         assert_eq!(serialized, vec![0x41])
     }
@@ -398,8 +440,70 @@ mod tests {
     }
 
     #[test]
+    fn pack_vec_cat_dog() {
+        let cat = String::from("cat");
+        let dog = String::from("dog");
+
+        let rlp = Rlp::new_unary(RecursiveBytes::Nested(
+            vec![
+                RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
+                RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
+            ]
+            .into(),
+        ));
+
+        let packed = pack_rlp(rlp).unwrap();
+
+        let mut bytes = Vec::new();
+        bytes.push(0xc0 + cat.len() as u8 + dog.len() as u8 + 2);
+        bytes.push(0x80 + cat.len() as u8);
+        bytes.extend_from_slice(cat.as_bytes());
+        bytes.push(0x80 + dog.len() as u8);
+        bytes.extend_from_slice(dog.as_bytes());
+
+        assert_eq!(packed, bytes);
+    }
+
+    #[test]
+    fn ser_vec_cat_dog() {
+        let cat = String::from("cat");
+        let dog = String::from("dog");
+
+        let vec = vec![cat.clone(), dog.clone()];
+
+        let expected_rlp = Rlp::new_unary(RecursiveBytes::Nested(
+            vec![
+                RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
+                RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
+            ]
+            .into(),
+        ));
+
+        let rlp = to_rlp(&vec).unwrap();
+
+        assert_eq!(rlp.0, expected_rlp.0);
+    }
+
+    #[test]
     fn ser_vec() {
         let vec = vec![1u8, 2, 3, 4, 5];
+
+        let rlp = to_rlp(&vec).unwrap();
+        assert_eq!(
+            rlp.0,
+            vec![RecursiveBytes::Nested(
+                vec![
+                    RecursiveBytes::Bytes(vec![1]),
+                    RecursiveBytes::Bytes(vec![2]),
+                    RecursiveBytes::Bytes(vec![3]),
+                    RecursiveBytes::Bytes(vec![4]),
+                    RecursiveBytes::Bytes(vec![5]),
+                ]
+                .into()
+            )
+            .into()]
+        );
+
         let serialized = to_bytes(&vec).unwrap();
         assert_eq!(serialized, vec![0xc5, 1, 2, 3, 4, 5]);
     }

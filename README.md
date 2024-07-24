@@ -20,4 +20,5 @@ RLP Encode / Decode arbitrary bytes
     - Add a crate `types`
     - `Transaction` (custom `Deserialize` for type 0, 1, 2)
     - `Block`
+    - `Receipt`
     - Provide conversions from popular lib types from this crate

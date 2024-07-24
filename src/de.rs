@@ -1,4 +1,4 @@
-use crate::{unpack_rlp, DecodeError, RecursiveBytes};
+use crate::{unpack_rlp, DecodeError, RecursiveBytes, Rlp};
 use paste::paste;
 use serde::de::{EnumAccess, SeqAccess, VariantAccess};
 use serde::{Deserialize, Deserializer};
@@ -27,23 +27,11 @@ pub fn from_bytes<'a, T>(bytes: Vec<u8>) -> Result<T, DecodeError>
 where
     T: Deserialize<'a>,
 {
-    let rec = dbg!(unpack_rlp(&bytes))?;
-    let mut rlp = Rlp::new(rec);
-    T::deserialize(&mut rlp)
+    let rlp = &mut dbg!(unpack_rlp(&bytes))?;
+    T::deserialize(rlp)
 }
 
-#[derive(Debug)]
-pub struct Rlp(VecDeque<RecursiveBytes>);
-
 impl Rlp {
-    fn new(inner: VecDeque<RecursiveBytes>) -> Self {
-        Rlp(inner)
-    }
-
-    fn new_unary(inner: RecursiveBytes) -> Self {
-        Rlp(vec![inner].into())
-    }
-
     fn need_bytes(&mut self) -> Result<Vec<u8>, DecodeError> {
         let RecursiveBytes::Bytes(bytes) = self.0.pop_front().ok_or(DecodeError::MissingBytes)?
         else {
@@ -166,9 +154,7 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
     type Error = DecodeError;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
-        // TODO is it correct ?
-        // Ok(())
-        todo!() // TODO test this
+        Ok(())
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -540,7 +526,7 @@ mod tests {
         bytes.extend_from_slice(dog.as_bytes());
 
         assert_eq!(
-            unpack_rlp(&bytes).unwrap(),
+            unpack_rlp(&bytes).unwrap().0,
             vec![RecursiveBytes::Nested(
                 vec![
                     RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
@@ -638,7 +624,7 @@ mod tests {
         message.extend_from_slice(&(-1i32).to_be_bytes());
 
         assert_eq!(
-            unpack_rlp(&message).unwrap(),
+            unpack_rlp(&message).unwrap().0,
             [RecursiveBytes::Nested(
                 vec![
                     RecursiveBytes::Bytes("Move".as_bytes().to_vec()),
