@@ -17,5 +17,7 @@ RLP Encode / Decode arbitrary bytes
 - Finish implementing all types
 - Benches
 - Provide RLP-ready useful types 
+    - Add a crate `types`
     - `Transaction` (custom `Deserialize` for type 0, 1, 2)
     - `Block`
+    - Provide conversions from popular lib types from this crate
