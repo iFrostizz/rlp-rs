@@ -30,11 +30,6 @@ impl Serializer {
     }
 
     fn push_bytes(&mut self, bytes: Vec<u8>) {
-        // push bytes to the end of the rlp.
-        // if we are not nested, then just create a new Bytes structure with the bytes in it.
-        // if we are nested by one, retrieve the last Nested and push Bytes.
-        // if we are nested by two, do as well.
-        // when the list ends, go one level higher.
         if let Some(index) = self.nesting.last().copied() {
             let nested = self.get_nested_mut(index).expect("missing nested from rlp");
             nested.push_back(RecursiveBytes::Bytes(bytes));
@@ -86,13 +81,6 @@ macro_rules! impl_int {
 }
 
 impl Serializer {
-    //     fn parse_num<const N: usize>(&mut self, bytes: [u8; N]) -> Option<Vec<u8>> {
-    //         bytes
-    //             .iter()
-    //             .position(|b| b > &0)
-    //             .map(|index| bytes[index..].to_vec())
-    //     }
-
     fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), DecodeError> {
         self.serialize_slice(&bytes)
     }
@@ -106,20 +94,6 @@ impl Serializer {
 
         ser::Serializer::serialize_bytes(self, bytes)
     }
-
-    //     fn serialize_list_len(&mut self, len: usize) -> Result<(), DecodeError> {
-    //         let mut bytes = if len <= 55 {
-    //             vec![0xc0 + len as u8]
-    //         } else {
-    //             let mut len_bytes = self.parse_num(len.to_be_bytes()).unwrap();
-    //             let mut bytes = vec![0xf7 + len_bytes.len() as u8];
-    //             bytes.append(&mut len_bytes);
-    //             bytes
-    //         };
-
-    //         self.output.append(&mut bytes);
-    //         Ok(())
-    //     }
 }
 
 impl<'a> ser::Serializer for &'a mut Serializer {
