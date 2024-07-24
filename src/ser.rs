@@ -74,7 +74,7 @@ macro_rules! impl_int {
     ($ty:ty) => {
         paste! {
             fn [< serialize_ $ty >](self, v: $ty) -> Result<Self::Ok, Self::Error> {
-                self.serialize_array(dbg!(v.to_be_bytes()))
+                self.serialize_array(v.to_be_bytes())
             }
         }
     };
@@ -231,9 +231,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_struct(
         self,
-        _name: &'static str,
+        name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
+        self.serialize_str(name)?;
         self.serialize_seq(Some(len))
     }
 
@@ -241,9 +242,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        self.serialize_str(variant)?;
         self.serialize_seq(Some(len))
     }
 }
@@ -529,6 +531,40 @@ mod tests {
         bytes.extend_from_slice(&(-1i32).to_be_bytes());
         bytes.push(0x80 + i32::BITS as u8 / 8);
         bytes.extend_from_slice(&i32::MIN.to_be_bytes());
+        assert_eq!(serialized, bytes);
+    }
+
+    #[test]
+    fn ser_enum_struct() {
+        let message = Message::Move {
+            x: i32::MAX,
+            y: -10,
+        };
+
+        let rlp = to_rlp(&message).unwrap();
+        assert_eq!(
+            rlp.0,
+            vec![
+                RecursiveBytes::Bytes("Move".as_bytes().to_vec()),
+                RecursiveBytes::Nested(
+                    vec![
+                        RecursiveBytes::Bytes(i32::MAX.to_be_bytes().to_vec()),
+                        RecursiveBytes::Bytes((-10i32).to_be_bytes().to_vec()),
+                    ]
+                    .into()
+                )
+            ]
+        );
+
+        let serialized = to_bytes(&message).unwrap();
+
+        let mut bytes = vec![0x80 + "Move".len() as u8];
+        bytes.extend_from_slice("Move".as_bytes());
+        bytes.push(0xc0 + (i32::BITS as u8 / 8 + 1) * 2);
+        bytes.push(0x80 + i32::BITS as u8 / 8);
+        bytes.extend_from_slice(&i32::MAX.to_be_bytes());
+        bytes.push(0x80 + i32::BITS as u8 / 8);
+        bytes.extend_from_slice(&(-10i32).to_be_bytes());
         assert_eq!(serialized, bytes);
     }
 }

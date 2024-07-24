@@ -27,7 +27,7 @@ pub fn from_bytes<'a, T>(bytes: Vec<u8>) -> Result<T, DecodeError>
 where
     T: Deserialize<'a>,
 {
-    let rlp = &mut dbg!(unpack_rlp(&bytes))?;
+    let rlp = &mut unpack_rlp(&bytes)?;
     T::deserialize(rlp)
 }
 
@@ -41,8 +41,7 @@ impl Rlp {
     }
 
     fn need_nested(&mut self) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
-        let RecursiveBytes::Nested(rec) =
-            dbg!(self).0.pop_front().ok_or(DecodeError::MissingBytes)?
+        let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(DecodeError::MissingBytes)?
         else {
             return Err(DecodeError::ExpectedList);
         };
@@ -285,7 +284,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     {
         // TODO visit_borrowed_str
         // https://serde.rs/lifetimes.html
-        visitor.visit_string(dbg!(self.parse_string()?))
+        visitor.visit_string(self.parse_string()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -417,7 +416,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
             RecursiveBytes::Nested(recs) => {
                 // flatten structure
                 *self = Rlp::new(recs);
-                dbg!(self).deserialize_str(visitor)
+                self.deserialize_str(visitor)
             }
         }
     }
@@ -643,6 +642,45 @@ mod tests {
         assert_eq!(
             from_bytes::<Message>(message).unwrap(),
             Message::Move { x: -1, y: -1 }
+        );
+    }
+
+    #[test]
+    fn de_enum_tuple() {
+        let mut message = Vec::new();
+        message.push(0xc0 + "ChangeColor".len() as u8 + ((i32::BITS / 8 + 1) * 3) as u8 + 2);
+        message.push(0x80 + "ChangeColor".len() as u8);
+        message.extend_from_slice("ChangeColor".as_bytes());
+        message.push(0xc0 + ((i32::BITS / 8 + 1) * 3) as u8);
+        message.push(0x80 + (i32::BITS / 8) as u8);
+        message.extend_from_slice(&(-1i32).to_be_bytes());
+        message.push(0x80 + (i32::BITS / 8) as u8);
+        message.extend_from_slice(&(-212412i32).to_be_bytes());
+        message.push(0x80 + (i32::BITS / 8) as u8);
+        message.extend_from_slice(&(2147483647i32).to_be_bytes());
+
+        let rlp = unpack_rlp(&message).unwrap();
+        assert_eq!(
+            rlp.0,
+            [RecursiveBytes::Nested(
+                vec![
+                    RecursiveBytes::Bytes("ChangeColor".as_bytes().to_vec()),
+                    RecursiveBytes::Nested(
+                        vec![
+                            RecursiveBytes::Bytes((-1i32).to_be_bytes().to_vec()),
+                            RecursiveBytes::Bytes((-212412i32).to_be_bytes().to_vec()),
+                            RecursiveBytes::Bytes((2147483647i32).to_be_bytes().to_vec())
+                        ]
+                        .into()
+                    )
+                ]
+                .into()
+            )]
+        );
+
+        assert_eq!(
+            from_bytes::<Message>(message).unwrap(),
+            Message::ChangeColor(-1, -212412, 2147483647)
         );
     }
 }

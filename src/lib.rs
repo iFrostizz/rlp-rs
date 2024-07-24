@@ -210,7 +210,7 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, DecodeError> {
 }
 
 fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, DecodeError> {
-    match dbg!(rec) {
+    match rec {
         RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
         RecursiveBytes::Nested(recs) => {
             let mut len = 0;
