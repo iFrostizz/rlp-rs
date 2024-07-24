@@ -1,0 +1,11 @@
+[package]
+name = "rlp-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+paste = "1.0.15"
+serde = { version = "1.0.204", features = ["derive"] }
+
+[dev-dependencies]
+serde_repr = "0.1.19"
