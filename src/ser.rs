@@ -517,11 +517,6 @@ mod tests {
         assert_eq!(serialized, bytes);
     }
 
-    // TODO looks like we will need the IR here.
-    // We need to be able to deduce the length of the list but we cannot know it
-    // before having serialized the nested numbers.
-    // We will need to write Serializer for &mut Rlp and then the opposite of unpack_rlp
-    // in order to spit out bytes.
     #[test]
     fn ser_enum_tuple() {
         let serialized = to_bytes(&Message::ChangeColor(i32::MAX, -1, i32::MIN)).unwrap();
