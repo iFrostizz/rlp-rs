@@ -38,6 +38,10 @@ dependencies = [
 [[package]]
 name = "rlp-types"
 version = "0.1.0"
+dependencies = [
+ "rlp-rs",
+ "serde",
+]
 
 [[package]]
 name = "serde"

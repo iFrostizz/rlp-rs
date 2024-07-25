@@ -1,3 +1,6 @@
 [workspace]
 members = ["rlp", "types"]
 resolver = "2"
+
+[workspace.dependencies]
+rlp-rs = { path = "./rlp" }

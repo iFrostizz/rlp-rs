@@ -14,6 +14,7 @@ impl Serializer {
         self.output.0.push_back(rec);
     }
 
+    /// safe to use because the structure is only appended to
     fn len(&self) -> usize {
         self.output.0.len()
     }
@@ -41,6 +42,7 @@ impl Serializer {
     fn new_list(&mut self) {
         // create a new list and increase the level of nesting.
         self.nesting.push(self.len());
+        dbg!(&self.nesting);
         self.push(RecursiveBytes::empty_list());
     }
 
@@ -74,6 +76,7 @@ macro_rules! impl_int {
     ($ty:ty) => {
         paste! {
             fn [< serialize_ $ty >](self, v: $ty) -> Result<Self::Ok, Self::Error> {
+                // dbg!(stringify!($ty));
                 self.serialize_array(v.to_be_bytes())
             }
         }
@@ -85,12 +88,14 @@ impl Serializer {
         self.serialize_slice(&bytes)
     }
 
+    // TODO should rename to serialize_item or something
     fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
-        let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
-            &bytes[index..]
-        } else {
-            &[0]
-        };
+        // TODO put back ?
+        // let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
+        //     &bytes[index..]
+        // } else {
+        //     &[0]
+        // };
 
         ser::Serializer::serialize_bytes(self, bytes)
     }
@@ -198,6 +203,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        dbg!(&_len);
         self.new_list();
         Ok(self)
     }
@@ -211,6 +217,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        dbg!(&len);
         self.serialize_seq(Some(len))
     }
 
@@ -221,7 +228,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.serialize_str(variant)?;
+        self.serialize_str(dbg!(variant))?;
         self.serialize_seq(Some(len))
     }
 
@@ -259,6 +266,7 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
+        dbg!("o");
         value.serialize(&mut **self)
     }
 
@@ -281,6 +289,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -298,6 +307,7 @@ impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -315,6 +325,7 @@ impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -356,6 +367,7 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -373,6 +385,7 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.end_list();
         Ok(())
     }
 }
@@ -566,5 +579,28 @@ mod tests {
         bytes.push(0x80 + i32::BITS as u8 / 8);
         bytes.extend_from_slice(&(-10i32).to_be_bytes());
         assert_eq!(serialized, bytes);
+    }
+
+    #[derive(Debug, Serialize)]
+    // struct Tuple([u8; 10], [u8; 20], [u8; 30]);
+    struct Tuple(Vec<u8>);
+
+    #[test]
+    fn ser_struct_tuple() {
+        // let tuple = Tuple([0; 10], [0; 20], [0; 30]);
+        let tuple = Tuple(vec![0; 10]);
+
+        let rlp = to_rlp(&tuple).unwrap();
+        assert_eq!(
+            rlp.0,
+            vec![RecursiveBytes::Nested(
+                vec![
+                    RecursiveBytes::Bytes(vec![0; 10]),
+                    RecursiveBytes::Bytes(vec![0; 20]),
+                    RecursiveBytes::Bytes(vec![0; 30])
+                ]
+                .into()
+            )]
+        );
     }
 }

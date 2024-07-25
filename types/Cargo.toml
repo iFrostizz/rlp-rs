@@ -3,3 +3,8 @@ name = "rlp-types"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+serde = { version = "1.0.204", features = ["derive"] }
+
+[dev-dependencies]
+rlp-rs = { workspace = true }
