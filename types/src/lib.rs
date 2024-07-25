@@ -1,4 +1,4 @@
 mod primitives;
 
 mod transaction;
-pub use transaction::{transaction::*, TransactionEnvelope};
+pub use transaction::TransactionEnvelope;

@@ -39,16 +39,26 @@ impl Serializer {
         }
     }
 
+    // TODO this doesn't support multi-level of nesting
+    // fix this so that it can find a reference to the nested list
     fn new_list(&mut self) {
         // create a new list and increase the level of nesting.
         self.nesting.push(self.len());
-        dbg!(&self.nesting);
         self.push(RecursiveBytes::empty_list());
     }
 
     fn end_list(&mut self) {
         // forget about the reference to the nested list and go one level higher.
         self.nesting.pop();
+    }
+}
+
+impl Default for Serializer {
+    fn default() -> Self {
+        Self {
+            output: Rlp::new(VecDeque::new()),
+            nesting: Vec::new(),
+        }
     }
 }
 
@@ -61,7 +71,7 @@ where
         nesting: Vec::new(),
     };
     value.serialize(&mut serializer)?;
-    Ok(serializer.output)
+    Ok(dbg!(serializer.output))
 }
 
 pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, DecodeError>
@@ -76,7 +86,6 @@ macro_rules! impl_int {
     ($ty:ty) => {
         paste! {
             fn [< serialize_ $ty >](self, v: $ty) -> Result<Self::Ok, Self::Error> {
-                // dbg!(stringify!($ty));
                 self.serialize_array(v.to_be_bytes())
             }
         }
@@ -88,14 +97,12 @@ impl Serializer {
         self.serialize_slice(&bytes)
     }
 
-    // TODO should rename to serialize_item or something
     fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
-        // TODO put back ?
-        // let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
-        //     &bytes[index..]
-        // } else {
-        //     &[0]
-        // };
+        let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
+            &bytes[index..]
+        } else {
+            &[0]
+        };
 
         ser::Serializer::serialize_bytes(self, bytes)
     }
@@ -209,7 +216,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        self.serialize_seq(Some(len))
+        // self.serialize_seq(Some(len))
+        Ok(self)
     }
 
     fn serialize_tuple_struct(
@@ -217,7 +225,6 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        dbg!(&len);
         self.serialize_seq(Some(len))
     }
 
@@ -228,7 +235,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.serialize_str(dbg!(variant))?;
+        self.serialize_str(variant)?;
         self.serialize_seq(Some(len))
     }
 
@@ -238,10 +245,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_struct(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        self.serialize_str(name)?;
         self.serialize_seq(Some(len))
     }
 
@@ -250,10 +256,12 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        len: usize,
+        _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        self.serialize_str(variant)?;
-        self.serialize_seq(Some(len))
+        if !variant.is_empty() {
+            self.serialize_str(variant)?;
+        }
+        Ok(self)
     }
 }
 
@@ -266,7 +274,6 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        dbg!("o");
         value.serialize(&mut **self)
     }
 
@@ -289,7 +296,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.end_list();
+        // self.end_list();
         Ok(())
     }
 }
@@ -501,7 +508,7 @@ mod tests {
     fn ser_array() {
         let arr = [10; 10];
         let serialized = to_bytes(&arr).unwrap();
-        let mut bytes = vec![0xca];
+        let mut bytes = vec![];
         bytes.extend_from_slice(&arr);
         assert_eq!(serialized, bytes);
     }
@@ -559,13 +566,8 @@ mod tests {
             rlp.0,
             vec![
                 RecursiveBytes::Bytes("Move".as_bytes().to_vec()),
-                RecursiveBytes::Nested(
-                    vec![
-                        RecursiveBytes::Bytes(i32::MAX.to_be_bytes().to_vec()),
-                        RecursiveBytes::Bytes((-10i32).to_be_bytes().to_vec()),
-                    ]
-                    .into()
-                )
+                RecursiveBytes::Bytes(i32::MAX.to_be_bytes().to_vec()),
+                RecursiveBytes::Bytes((-10i32).to_be_bytes().to_vec()),
             ]
         );
 
@@ -573,7 +575,6 @@ mod tests {
 
         let mut bytes = vec![0x80 + "Move".len() as u8];
         bytes.extend_from_slice("Move".as_bytes());
-        bytes.push(0xc0 + (i32::BITS as u8 / 8 + 1) * 2);
         bytes.push(0x80 + i32::BITS as u8 / 8);
         bytes.extend_from_slice(&i32::MAX.to_be_bytes());
         bytes.push(0x80 + i32::BITS as u8 / 8);
@@ -582,13 +583,15 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
-    // struct Tuple([u8; 10], [u8; 20], [u8; 30]);
-    struct Tuple(Vec<u8>);
+    struct Tuple(
+        #[serde(with = "serde_bytes")] [u8; 10],
+        #[serde(with = "serde_bytes")] [u8; 20],
+        #[serde(with = "serde_bytes")] [u8; 30],
+    );
 
     #[test]
-    fn ser_struct_tuple() {
-        // let tuple = Tuple([0; 10], [0; 20], [0; 30]);
-        let tuple = Tuple(vec![0; 10]);
+    fn ser_struct_tuple_bytes() {
+        let tuple = Tuple([0; 10], [0; 20], [0; 30]);
 
         let rlp = to_rlp(&tuple).unwrap();
         assert_eq!(
@@ -601,6 +604,41 @@ mod tests {
                 ]
                 .into()
             )]
+        );
+    }
+
+    #[test]
+    fn ser_empty_vec() {
+        #[derive(Debug, Serialize)]
+        struct MyVec(#[serde(with = "serde_bytes")] Vec<u8>);
+        let vec = MyVec(vec![]);
+
+        let rlp = to_rlp(&vec).unwrap();
+        assert_eq!(rlp.0, vec![RecursiveBytes::Bytes(vec![])]);
+
+        let serialized = to_bytes(&vec).unwrap();
+        assert_eq!(serialized, vec![0x80]);
+    }
+
+    #[test]
+    fn ser_enum_empty_struct() {
+        #[derive(Debug, Serialize)]
+        enum MyEnum {
+            Variant1 {
+                #[serde(with = "serde_bytes")]
+                data: Vec<u8>,
+            },
+        }
+
+        let en = MyEnum::Variant1 { data: vec![] };
+
+        let rlp = to_rlp(&en).unwrap();
+        assert_eq!(
+            rlp.0,
+            vec![
+                RecursiveBytes::Bytes("Variant1".as_bytes().to_vec()),
+                RecursiveBytes::Bytes(vec![])
+            ]
         );
     }
 }

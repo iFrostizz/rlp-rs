@@ -5,7 +5,7 @@ mod de;
 pub use de::from_bytes;
 
 mod ser;
-pub use ser::to_bytes;
+pub use ser::{to_bytes, Serializer};
 
 #[derive(Debug)]
 pub enum DecodeError {
@@ -167,8 +167,8 @@ fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {
 }
 
 fn append_rlp_bytes(pack: &mut Vec<u8>, new_bytes: Vec<u8>) -> Result<usize, DecodeError> {
-    let mut bytes = match new_bytes.len() {
-        1 if new_bytes[0] <= 127 => vec![new_bytes[0]],
+    let mut bytes = match dbg!(new_bytes.len()) {
+        1 if dbg!(new_bytes[0]) <= 127 => vec![new_bytes[0]],
         len => {
             if len <= 55 {
                 let disc = 0x80 + len as u8;
@@ -201,7 +201,7 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, DecodeError> {
         vec![0xc0 + len as u8]
     } else {
         let mut len_bytes = parse_num(len.to_be_bytes()).unwrap();
-        let mut bytes = vec![0xf7 + len_bytes.len() as u8];
+        let mut bytes = vec![0xf8 + len_bytes.len() as u8];
         bytes.append(&mut len_bytes);
         bytes
     };
