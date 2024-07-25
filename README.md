@@ -11,6 +11,8 @@ RLP Encode / Decode arbitrary bytes
 - Unimplemented on:
     - Map
     - Option
+- Rust doesn't support specialization yet. For this reason, use `serde_bytes` when annotating data that needs to be interpreter as bytes.
+For an example, look at [Transaction](types/src/transaction.rs). Reading material: https://serde.rs/impl-serialize.html#other-special-cases
 
 ## TODO
 

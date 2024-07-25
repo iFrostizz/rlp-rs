@@ -12,7 +12,7 @@ enum RefRecursiveBytes {
 }
 
 #[derive(Default)]
-pub struct Serializer {
+struct Serializer {
     output: VecDeque<RefRecursiveBytes>,
     stack: Vec<Rc<RefCell<Vec<RefRecursiveBytes>>>>,
 }

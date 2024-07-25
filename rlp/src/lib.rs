@@ -5,7 +5,7 @@ mod de;
 pub use de::from_bytes;
 
 mod ser;
-pub use ser::{to_bytes, Serializer};
+pub use ser::to_bytes;
 
 #[derive(Debug)]
 pub enum RlpError {
@@ -61,7 +61,7 @@ impl RecursiveBytes {
 }
 
 #[derive(Debug, Default)]
-pub struct Rlp(VecDeque<RecursiveBytes>);
+pub(crate) struct Rlp(VecDeque<RecursiveBytes>);
 
 impl Rlp {
     fn new(inner: VecDeque<RecursiveBytes>) -> Self {
