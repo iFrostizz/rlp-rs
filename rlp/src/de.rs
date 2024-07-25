@@ -26,7 +26,7 @@ pub fn from_bytes<'a, T>(bytes: Vec<u8>) -> Result<T, RlpError>
 where
     T: Deserialize<'a>,
 {
-    let rlp = &mut unpack_rlp(&bytes)?;
+    let rlp = &mut dbg!(unpack_rlp(&bytes))?;
     T::deserialize(rlp)
 }
 

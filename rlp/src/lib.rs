@@ -85,24 +85,24 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         return Ok(Vec::new());
     };
     cursor += 1;
+    println!("{:?}", &bytes);
 
     let mut unpacked = Vec::new();
 
-    let ret = if disc <= 127 {
-        // TODO change me, maybe remove vec
+    let ret = if disc <= 0x7f {
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
         RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 183 {
-        let len = disc - 128;
+    } else if disc <= 0xb7 {
+        let len = disc - 0x80;
         let ret = bytes
             .get(cursor..(cursor + len as usize))
             .ok_or(RlpError::MissingBytes)?;
         cursor += len as usize;
 
         RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 191 {
-        let len_bytes_len = disc - 183;
+    } else if disc <= 0xbf {
+        let len_bytes_len = disc - 0xb7;
         if len_bytes_len > 8 {
             unimplemented!("we do not support > 2**64 bytes long strings");
         }
@@ -120,8 +120,8 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         cursor += len;
 
         RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 247 {
-        let len = disc - 192;
+    } else if disc <= 0xf7 {
+        let len = disc - 0xc0;
         let list_bytes = bytes
             .get(cursor..(cursor + len as usize))
             .ok_or(RlpError::MissingBytes)?;
@@ -130,7 +130,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         // we want to represent empty lists so don't remove them
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     } else {
-        let len_bytes_len = disc - 247;
+        let len_bytes_len = disc - 0xf8;
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
@@ -146,6 +146,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     };
 
+    println!("{:?}", &ret);
     unpacked.push(ret);
     unpacked.append(&mut recursive_unpack_rlp(bytes, cursor)?);
 

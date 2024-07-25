@@ -10,7 +10,8 @@ pub enum TransactionEnvelope {
     DynamicFee(TransactionDynamicFee),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionLegacy {
     nonce: u64,
     #[serde(with = "serde_bytes")]
@@ -30,7 +31,8 @@ pub struct TransactionLegacy {
     s: U256,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionAccessList {
     #[serde(with = "serde_bytes")]
     chain_id: U256,
@@ -53,7 +55,8 @@ pub struct TransactionAccessList {
     s: U256,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionDynamicFee {
     #[serde(with = "serde_bytes")]
     chain_id: U256,
@@ -78,7 +81,8 @@ pub struct TransactionDynamicFee {
     s: U256,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccessList {
     #[serde(with = "serde_bytes")]
     address: Address,
@@ -123,6 +127,8 @@ impl TransactionEnvelope {
 
 #[cfg(test)]
 mod tests {
+    use rlp_rs::from_bytes;
+
     use super::*;
 
     #[test]
@@ -234,7 +240,7 @@ mod tests {
 
     #[test]
     fn tx_ser_dynamic_fees() {
-        let tx = TransactionEnvelope::DynamicFee(TransactionDynamicFee {
+        let tx = TransactionDynamicFee {
             chain_id: [1; 32],
             nonce: u64::MAX,
             max_priority_fee_per_gas: [1; 32],
@@ -247,9 +253,10 @@ mod tests {
             y_parity: [1; 32],
             r: [1; 32],
             s: [1; 32],
-        });
+        };
+        let tx_envelope = TransactionEnvelope::DynamicFee(tx.clone());
 
-        let serialized = tx.as_bytes().unwrap();
+        let mut serialized = tx_envelope.as_bytes().unwrap();
 
         let size: usize =
             1 + 32 + 1 + 8 + 1 + 32 + 1 + 32 + 1 + 8 + 1 + 20 + 1 + 32 + 1 + 1 + (1 + 32) * 3;
@@ -286,5 +293,10 @@ mod tests {
             bytes.extend_from_slice(&[1; 32]);
         }
         assert_eq!(serialized, bytes);
+
+        serialized.remove(0); // remove tx_type
+
+        let deserialized: TransactionDynamicFee = dbg!(from_bytes(serialized)).unwrap();
+        assert_eq!(deserialized, tx);
     }
 }
