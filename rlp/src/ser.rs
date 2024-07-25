@@ -1,4 +1,4 @@
-use crate::{pack_rlp, DecodeError, RecursiveBytes, Rlp};
+use crate::{pack_rlp, RecursiveBytes, Rlp, RlpError};
 use paste::paste;
 use serde::{ser, Serialize};
 use std::cell::RefCell;
@@ -11,6 +11,7 @@ enum RefRecursiveBytes {
     Nested(Rc<RefCell<Vec<RefRecursiveBytes>>>),
 }
 
+#[derive(Default)]
 pub struct Serializer {
     output: VecDeque<RefRecursiveBytes>,
     stack: Vec<Rc<RefCell<Vec<RefRecursiveBytes>>>>,
@@ -38,7 +39,7 @@ impl Serializer {
 
     /// pushes bytes to the most nested list we are in or at the highest level.
     fn push_bytes(&mut self, bytes: Vec<u8>) {
-        let bytes = RefRecursiveBytes::Data(dbg!(bytes));
+        let bytes = RefRecursiveBytes::Data(bytes);
 
         if let Some(top) = self.stack.last_mut() {
             top.borrow_mut().push(bytes);
@@ -54,7 +55,7 @@ impl Serializer {
                 let list = Rc::try_unwrap(list).unwrap().into_inner();
                 let rec_list = list
                     .into_iter()
-                    .map(|el| Self::recursive_into_recursive_bytes(el))
+                    .map(Self::recursive_into_recursive_bytes)
                     .collect();
                 RecursiveBytes::Nested(rec_list)
             }
@@ -74,26 +75,16 @@ impl Serializer {
     }
 }
 
-impl Default for Serializer {
-    fn default() -> Self {
-        Self {
-            output: VecDeque::new(),
-            stack: Vec::new(),
-        }
-    }
-}
-
-pub(crate) fn to_rlp<T>(value: &T) -> Result<Rlp, DecodeError>
+pub(crate) fn to_rlp<T>(value: &T) -> Result<Rlp, RlpError>
 where
     T: Serialize,
 {
     let mut serializer = Serializer::default();
     value.serialize(&mut serializer)?;
-    dbg!(&serializer.output);
     Ok(serializer.into_rlp())
 }
 
-pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, DecodeError>
+pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, RlpError>
 where
     T: Serialize,
 {
@@ -112,11 +103,11 @@ macro_rules! impl_int {
 }
 
 impl Serializer {
-    fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), DecodeError> {
+    fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), RlpError> {
         self.serialize_slice(&bytes)
     }
 
-    fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
+    fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), RlpError> {
         let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
             &bytes[index..]
         } else {
@@ -130,7 +121,7 @@ impl Serializer {
 impl<'a> ser::Serializer for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError; // TODO change the name of this error
+    type Error = RlpError; // TODO change the name of this error
 
     type SerializeSeq = Self;
     type SerializeTuple = Self;
@@ -229,13 +220,11 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        dbg!(&_len);
         self.new_list();
         Ok(self)
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        // self.serialize_seq(Some(len))
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         Ok(self)
     }
 
@@ -287,7 +276,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 impl<'a> ser::SerializeSeq for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -305,7 +294,7 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
 impl<'a> ser::SerializeTuple for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -323,7 +312,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
 impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -341,7 +330,7 @@ impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
 impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -359,7 +348,7 @@ impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
 impl<'a> ser::SerializeMap for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
@@ -383,7 +372,7 @@ impl<'a> ser::SerializeMap for &'a mut Serializer {
 impl<'a> ser::SerializeStruct for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -401,7 +390,7 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
 impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     type Ok = ();
 
-    type Error = DecodeError;
+    type Error = RlpError;
 
     fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -459,13 +448,10 @@ mod tests {
         let cat = String::from("cat");
         let dog = String::from("dog");
 
-        let rlp = Rlp::new_unary(RecursiveBytes::Nested(
-            vec![
-                RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
-                RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
-            ]
-            .into(),
-        ));
+        let rlp = Rlp::new_unary(RecursiveBytes::Nested(vec![
+            RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
+            RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
+        ]));
 
         let packed = pack_rlp(rlp).unwrap();
 
@@ -486,13 +472,10 @@ mod tests {
 
         let vec = vec![cat.clone(), dog.clone()];
 
-        let expected_rlp = Rlp::new_unary(RecursiveBytes::Nested(
-            vec![
-                RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
-                RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
-            ]
-            .into(),
-        ));
+        let expected_rlp = Rlp::new_unary(RecursiveBytes::Nested(vec![
+            RecursiveBytes::Bytes(cat.as_bytes().to_vec()),
+            RecursiveBytes::Bytes(dog.as_bytes().to_vec()),
+        ]));
 
         let rlp = to_rlp(&vec).unwrap();
 
@@ -506,17 +489,13 @@ mod tests {
         let rlp = to_rlp(&vec).unwrap();
         assert_eq!(
             rlp.0,
-            vec![RecursiveBytes::Nested(
-                vec![
-                    RecursiveBytes::Bytes(vec![1]),
-                    RecursiveBytes::Bytes(vec![2]),
-                    RecursiveBytes::Bytes(vec![3]),
-                    RecursiveBytes::Bytes(vec![4]),
-                    RecursiveBytes::Bytes(vec![5]),
-                ]
-                .into()
-            )
-            .into()]
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::Bytes(vec![1]),
+                RecursiveBytes::Bytes(vec![2]),
+                RecursiveBytes::Bytes(vec![3]),
+                RecursiveBytes::Bytes(vec![4]),
+                RecursiveBytes::Bytes(vec![5]),
+            ])]
         );
 
         let serialized = to_bytes(&vec).unwrap();
@@ -615,14 +594,11 @@ mod tests {
         let rlp = to_rlp(&tuple).unwrap();
         assert_eq!(
             rlp.0,
-            vec![RecursiveBytes::Nested(
-                vec![
-                    RecursiveBytes::Bytes(vec![0; 10]),
-                    RecursiveBytes::Bytes(vec![0; 20]),
-                    RecursiveBytes::Bytes(vec![0; 30])
-                ]
-                .into()
-            )]
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::Bytes(vec![0; 10]),
+                RecursiveBytes::Bytes(vec![0; 20]),
+                RecursiveBytes::Bytes(vec![0; 30])
+            ])]
         );
     }
 

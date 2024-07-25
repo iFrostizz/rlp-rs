@@ -1,5 +1,5 @@
 use crate::primitives::{Address, SerdeU256, U256};
-use rlp_rs::DecodeError;
+use rlp_rs::RlpError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -96,7 +96,7 @@ impl TransactionEnvelope {
         }
     }
 
-    pub fn as_bytes(&self) -> Result<Vec<u8>, DecodeError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, RlpError> {
         let tx_type = self.tx_type();
         let mut bytes = if tx_type > 0 { vec![tx_type] } else { vec![] };
         let tx_rlp = &mut match self {
@@ -146,6 +146,7 @@ mod tests {
 
         assert_eq!(serialized, tx_rlp);
 
+        #[allow(clippy::identity_op)]
         let size: usize = 8 + 32 + 8 + 20 + 32 + 0 + 32 * 3 + 9;
         assert!(size > 55);
 
@@ -194,16 +195,17 @@ mod tests {
 
         let serialized = tx.as_bytes().unwrap();
 
+        #[allow(clippy::identity_op)]
         let size: usize =
             1 + 32 + 1 + 8 + 1 + 32 + 1 + 8 + 1 + 20 + 1 + 32 + 1 + 0 + 1 + 0 + (1 + 32) * 3;
         assert!(size > 55);
 
         let size_bytes = size.to_be_bytes();
-        let size_bytes = dbg!(size_bytes
+        let size_bytes = size_bytes
             .iter()
             .position(|b| b > &0)
             .map(|i| &size_bytes[i..])
-            .unwrap());
+            .unwrap();
 
         let mut bytes = vec![0x01]; // tx_type
         bytes.push(0xf8 + size_bytes.len() as u8);

@@ -8,7 +8,7 @@ mod ser;
 pub use ser::{to_bytes, Serializer};
 
 #[derive(Debug)]
-pub enum DecodeError {
+pub enum RlpError {
     MissingBytes,
     TrailingBytes,
     ExpectedBytes,
@@ -18,35 +18,33 @@ pub enum DecodeError {
     Message(String),
 }
 
-impl serde::ser::Error for DecodeError {
+impl serde::ser::Error for RlpError {
     fn custom<T: Display>(msg: T) -> Self {
-        DecodeError::Message(msg.to_string())
+        RlpError::Message(msg.to_string())
     }
 }
 
-impl serde::de::Error for DecodeError {
+impl serde::de::Error for RlpError {
     fn custom<T: Display>(msg: T) -> Self {
-        DecodeError::Message(msg.to_string())
+        RlpError::Message(msg.to_string())
     }
 }
 
-impl Display for DecodeError {
+impl Display for RlpError {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            DecodeError::Message(message) => formatter.write_str(message),
-            DecodeError::MissingBytes => {
-                formatter.write_str("missing bytes after discriminant byte")
-            }
-            DecodeError::ExpectedList => formatter.write_str("expected list, got bytes"),
-            DecodeError::ExpectedBytes => formatter.write_str("expected bytes, got list"),
-            DecodeError::InvalidBytes => formatter.write_str("invalid bytes"),
-            DecodeError::InvalidLength => formatter.write_str("invalid length"),
-            DecodeError::TrailingBytes => formatter.write_str("trailing bytes"),
+            RlpError::Message(message) => formatter.write_str(message),
+            RlpError::MissingBytes => formatter.write_str("missing bytes after discriminant byte"),
+            RlpError::ExpectedList => formatter.write_str("expected list, got bytes"),
+            RlpError::ExpectedBytes => formatter.write_str("expected bytes, got list"),
+            RlpError::InvalidBytes => formatter.write_str("invalid bytes"),
+            RlpError::InvalidLength => formatter.write_str("invalid length"),
+            RlpError::TrailingBytes => formatter.write_str("trailing bytes"),
         }
     }
 }
 
-impl std::error::Error for DecodeError {}
+impl std::error::Error for RlpError {}
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
@@ -55,6 +53,7 @@ pub(crate) enum RecursiveBytes {
     Nested(Vec<RecursiveBytes>),
 }
 
+#[cfg(test)]
 impl RecursiveBytes {
     fn empty_list() -> Self {
         RecursiveBytes::Nested(Vec::new())
@@ -79,10 +78,7 @@ impl Rlp {
 }
 
 // run a BFS to unpack the rlp
-fn recursive_unpack_rlp(
-    bytes: &[u8],
-    mut cursor: usize,
-) -> Result<Vec<RecursiveBytes>, DecodeError> {
+fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBytes>, RlpError> {
     let disc = if let Some(disc) = bytes.get(cursor) {
         *disc
     } else {
@@ -101,7 +97,7 @@ fn recursive_unpack_rlp(
         let len = disc - 128;
         let ret = bytes
             .get(cursor..(cursor + len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
+            .ok_or(RlpError::MissingBytes)?;
         cursor += len as usize;
 
         RecursiveBytes::Bytes(ret.to_vec())
@@ -113,22 +109,22 @@ fn recursive_unpack_rlp(
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
+            .ok_or(RlpError::MissingBytes)?;
         cursor += len_bytes_len as usize;
 
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
         let ret = bytes
-            .get(cursor..(cursor + len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
-        cursor += len as usize;
+            .get(cursor..(cursor + len))
+            .ok_or(RlpError::MissingBytes)?;
+        cursor += len;
 
         RecursiveBytes::Bytes(ret.to_vec())
     } else if disc <= 247 {
         let len = disc - 192;
         let list_bytes = bytes
             .get(cursor..(cursor + len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
+            .ok_or(RlpError::MissingBytes)?;
         cursor += len as usize;
 
         // we want to represent empty lists so don't remove them
@@ -138,14 +134,14 @@ fn recursive_unpack_rlp(
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
+            .ok_or(RlpError::MissingBytes)?;
         cursor += len_bytes_len as usize;
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
         let list_bytes = bytes
-            .get(cursor..(cursor + len as usize))
-            .ok_or(DecodeError::MissingBytes)?;
-        cursor += len as usize;
+            .get(cursor..(cursor + len))
+            .ok_or(RlpError::MissingBytes)?;
+        cursor += len;
 
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     };
@@ -156,7 +152,7 @@ fn recursive_unpack_rlp(
     Ok(unpacked)
 }
 
-pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, DecodeError> {
+pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
     Ok(Rlp::new(recursive_unpack_rlp(bytes, 0)?.into()))
 }
 
@@ -167,7 +163,7 @@ fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {
         .map(|index| bytes[index..].to_vec())
 }
 
-fn append_rlp_bytes(pack: &mut Vec<u8>, new_bytes: Vec<u8>) -> Result<usize, DecodeError> {
+fn append_rlp_bytes(pack: &mut Vec<u8>, new_bytes: Vec<u8>) -> Result<usize, RlpError> {
     let mut bytes = match new_bytes.len() {
         1 if new_bytes[0] <= 127 => new_bytes,
         len => {
@@ -185,19 +181,19 @@ fn append_rlp_bytes(pack: &mut Vec<u8>, new_bytes: Vec<u8>) -> Result<usize, Dec
                 bytes.extend_from_slice(&new_bytes);
                 bytes
             } else {
-                return Err(DecodeError::InvalidLength);
+                return Err(RlpError::InvalidLength);
             }
         }
     };
 
-    let len = dbg!(bytes.len());
+    let len = bytes.len();
 
     pack.append(&mut bytes);
 
     Ok(len)
 }
 
-fn serialize_list_len(len: usize) -> Result<Vec<u8>, DecodeError> {
+fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
     let bytes = if len <= 55 {
         vec![0xc0 + len as u8]
     } else {
@@ -210,7 +206,7 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, DecodeError> {
     Ok(bytes)
 }
 
-fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, DecodeError> {
+fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, RlpError> {
     match rec {
         RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
         RecursiveBytes::Nested(recs) => {
@@ -228,7 +224,7 @@ fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, 
     }
 }
 
-pub(crate) fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, DecodeError> {
+pub(crate) fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
     let mut pack = Vec::new();
     while let Some(rec) = rlp.pop_front() {
         recursive_pack_rlp(rec, &mut pack)?;
@@ -271,13 +267,10 @@ mod tests {
         let unpacked = unpack_rlp(&cat_dog_rlp).unwrap();
         assert_eq!(
             unpacked.0,
-            vec![RecursiveBytes::Nested(
-                vec![
-                    RecursiveBytes::Bytes(vec![b'd', b'o', b'g']),
-                    RecursiveBytes::Bytes(vec![b'c', b'a', b't']),
-                ]
-                .into()
-            )]
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::Bytes(vec![b'd', b'o', b'g']),
+                RecursiveBytes::Bytes(vec![b'c', b'a', b't']),
+            ])]
         );
     }
 
@@ -323,20 +316,14 @@ mod tests {
         let unpacked = unpack_rlp(&[0xc7, 0xc0, 0xc1, 0xc0, 0xc3, 0xc0, 0xc1, 0xc0][..]).unwrap();
         assert_eq!(
             unpacked.0,
-            vec![RecursiveBytes::Nested(
-                vec![
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::empty_list(),
+                RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()]),
+                RecursiveBytes::Nested(vec![
                     RecursiveBytes::empty_list(),
-                    RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()].into()),
-                    RecursiveBytes::Nested(
-                        vec![
-                            RecursiveBytes::empty_list(),
-                            RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()].into()),
-                        ]
-                        .into()
-                    )
-                ]
-                .into()
-            )]
+                    RecursiveBytes::Nested(vec![RecursiveBytes::empty_list()]),
+                ])
+            ])]
         );
     }
 
