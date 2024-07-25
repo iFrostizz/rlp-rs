@@ -18,8 +18,8 @@ RLP Encode / Decode arbitrary bytes
 - [ ] Reorder functions around
 - [ ] Benches
 - [ ] Provide RLP-ready useful types 
-    - [ ] Add a crate `types`
-    - [ ] `Transaction` (custom `Deserialize` for type 0, 1, 2)
+    - [x] Add a crate `types`
+    - [x] `Transaction`
     - [ ] `Block`
     - [ ] `Receipt`
     - [ ] Provide conversions from popular lib types from this crate
