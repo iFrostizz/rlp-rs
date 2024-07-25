@@ -1,8 +1,6 @@
 use crate::primitives::{Address, SerdeU256, U256};
 use rlp_rs::DecodeError;
-use serde::ser::{SerializeSeq, SerializeStructVariant, SerializeTuple};
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteArray;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -122,40 +120,6 @@ impl TransactionEnvelope {
         todo!()
     }
 }
-
-// moved to to_rlp because there is no way to concatenate stuff with serde
-// impl Serialize for TransactionEnvelope {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         let tx_type = self.tx_type();
-//         let mut serializer = if tx_type > 0 {
-//             if tx_type > 127 {
-//                 return Err(serde::ser::Error::custom("invalid tx type"));
-//             }
-
-//             let mut serializer = serializer.serialize_tuple(2)?;
-//             let tx_type = ByteArray::new([tx_type]);
-//             serializer.serialize_element(&tx_type)?;
-//             serializer
-//         } else {
-//             serializer.serialize_tuple(1)?
-//         };
-
-//         match self {
-//             TransactionEnvelope::Legacy(legacy) => serializer.serialize_element(legacy)?,
-//             TransactionEnvelope::AccessList(access_list) => {
-//                 serializer.serialize_element(access_list)?
-//             }
-//             TransactionEnvelope::DynamicFee(dynamic_fee) => {
-//                 serializer.serialize_element(dynamic_fee)?
-//             }
-//         }
-
-//         serializer.end()
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
