@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 serde_bytes = { workspace = true }
+rlp-rs = { workspace = true }
 
 [dev-dependencies]
-rlp-rs = { workspace = true }

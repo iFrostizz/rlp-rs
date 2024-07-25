@@ -1,4 +1,5 @@
 use crate::primitives::{Address, SerdeU256, U256};
+use rlp_rs::DecodeError;
 use serde::ser::{SerializeSeq, SerializeStructVariant, SerializeTuple};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
@@ -97,32 +98,17 @@ impl TransactionEnvelope {
         }
     }
 
-    // pub fn as_rlp(
-    //     &self,
-    // ) -> Result<Vec<u8>, <&mut std::fmt::Formatter<'_> as serde::Serializer>::Error> {
-    //     let mut serialized_tx = Vec::new();
-
-    //     let tx_type = self.tx_type();
-    //     if tx_type > 0 {
-    //         if tx_type > 127 {
-    //             return Err(serde::ser::Error::custom("invalid tx type"));
-    //         }
-
-    //         serialized_tx.push(tx_type);
-    //     }
-
-    //     match self {
-    //         TransactionEnvelope::Legacy(legacy) => legacy.serialize(Serializer::default())?,
-    //         TransactionEnvelope::AccessList(access_list) => {
-    //             serializer.serialize_element(access_list)?
-    //         }
-    //         TransactionEnvelope::DynamicFee(dynamic_fee) => {
-    //             serializer.serialize_element(dynamic_fee)?
-    //         }
-    //     }
-
-    //     serializer.end()
-    // }
+    pub fn as_bytes(&self) -> Result<Vec<u8>, DecodeError> {
+        let tx_type = self.tx_type();
+        let mut bytes = if tx_type > 0 { vec![tx_type] } else { vec![] };
+        let tx_rlp = &mut match self {
+            TransactionEnvelope::Legacy(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::AccessList(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::DynamicFee(tx) => rlp_rs::to_bytes(tx),
+        }?;
+        bytes.append(tx_rlp);
+        Ok(bytes)
+    }
 
     pub fn legacy() -> Self {
         todo!()
@@ -138,38 +124,38 @@ impl TransactionEnvelope {
 }
 
 // moved to to_rlp because there is no way to concatenate stuff with serde
-impl Serialize for TransactionEnvelope {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let tx_type = self.tx_type();
-        let mut serializer = if tx_type > 0 {
-            if tx_type > 127 {
-                return Err(serde::ser::Error::custom("invalid tx type"));
-            }
+// impl Serialize for TransactionEnvelope {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         let tx_type = self.tx_type();
+//         let mut serializer = if tx_type > 0 {
+//             if tx_type > 127 {
+//                 return Err(serde::ser::Error::custom("invalid tx type"));
+//             }
 
-            let mut serializer = serializer.serialize_tuple(2)?;
-            let tx_type = ByteArray::new([tx_type]);
-            serializer.serialize_element(&tx_type)?;
-            serializer
-        } else {
-            serializer.serialize_tuple(1)?
-        };
+//             let mut serializer = serializer.serialize_tuple(2)?;
+//             let tx_type = ByteArray::new([tx_type]);
+//             serializer.serialize_element(&tx_type)?;
+//             serializer
+//         } else {
+//             serializer.serialize_tuple(1)?
+//         };
 
-        match self {
-            TransactionEnvelope::Legacy(legacy) => serializer.serialize_element(legacy)?,
-            TransactionEnvelope::AccessList(access_list) => {
-                serializer.serialize_element(access_list)?
-            }
-            TransactionEnvelope::DynamicFee(dynamic_fee) => {
-                serializer.serialize_element(dynamic_fee)?
-            }
-        }
+//         match self {
+//             TransactionEnvelope::Legacy(legacy) => serializer.serialize_element(legacy)?,
+//             TransactionEnvelope::AccessList(access_list) => {
+//                 serializer.serialize_element(access_list)?
+//             }
+//             TransactionEnvelope::DynamicFee(dynamic_fee) => {
+//                 serializer.serialize_element(dynamic_fee)?
+//             }
+//         }
 
-        serializer.end()
-    }
-}
+//         serializer.end()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -177,7 +163,7 @@ mod tests {
 
     #[test]
     fn tx_ser_legacy() {
-        let tx = TransactionEnvelope::Legacy(TransactionLegacy {
+        let tx = TransactionLegacy {
             nonce: u64::MAX,
             gas_price: [1; 32],
             gas_limit: u64::MAX,
@@ -187,9 +173,14 @@ mod tests {
             v: [1; 32],
             r: [1; 32],
             s: [1; 32],
-        });
+        };
 
-        let serialized = rlp_rs::to_bytes(&tx).unwrap();
+        let tx_rlp = rlp_rs::to_bytes(&tx).unwrap();
+
+        let tx = TransactionEnvelope::Legacy(tx);
+        let serialized = tx.as_bytes().unwrap();
+
+        assert_eq!(serialized, tx_rlp);
 
         let size: usize = 8 + 32 + 8 + 20 + 32 + 0 + 32 * 3 + 9;
         assert!(size > 55);
@@ -237,9 +228,10 @@ mod tests {
             s: [1; 32],
         });
 
-        let serialized = rlp_rs::to_bytes(&tx).unwrap();
+        let serialized = tx.as_bytes().unwrap();
 
-        let size: usize = 32 + 8 + 32 + 8 + 20 + 32 + 0 + 0 + 32 * 3 + 11;
+        let size: usize =
+            1 + 32 + 1 + 8 + 1 + 32 + 1 + 8 + 1 + 20 + 1 + 32 + 1 + 0 + 1 + 0 + (1 + 32) * 3;
         assert!(size > 55);
 
         let size_bytes = size.to_be_bytes();
@@ -281,19 +273,20 @@ mod tests {
             nonce: u64::MAX,
             max_priority_fee_per_gas: [1; 32],
             max_fee_per_gas: [1; 32],
-            access_list: vec![],
             gas_limit: u64::MAX,
             destination: [1; 20],
             amount: [1; 32],
             data: vec![],
+            access_list: vec![],
             y_parity: [1; 32],
             r: [1; 32],
             s: [1; 32],
         });
 
-        let serialized = rlp_rs::to_bytes(&tx).unwrap();
+        let serialized = tx.as_bytes().unwrap();
 
-        let size: usize = 8 + 32 + 8 + 20 + 32 + 0 + 32 * 3 + 9;
+        let size: usize =
+            1 + 32 + 1 + 8 + 1 + 32 + 1 + 32 + 1 + 8 + 1 + 20 + 1 + 32 + 1 + 1 + (1 + 32) * 3;
         assert!(size > 55);
 
         let size_bytes = size.to_be_bytes();
@@ -302,11 +295,16 @@ mod tests {
             .position(|b| b > &0)
             .map(|i| &size_bytes[i..])
             .unwrap();
-        let mut bytes = vec![0xf8 + size_bytes.len() as u8];
 
+        let mut bytes = vec![0x02];
+        bytes.push(0xf8 + size_bytes.len() as u8);
         bytes.extend_from_slice(size_bytes);
+        bytes.push(0x80 + 32);
+        bytes.extend_from_slice(&[1; 32]);
         bytes.push(0x80 + 8);
         bytes.extend_from_slice(&[255; 8]);
+        bytes.push(0x80 + 32);
+        bytes.extend_from_slice(&[1; 32]);
         bytes.push(0x80 + 32);
         bytes.extend_from_slice(&[1; 32]);
         bytes.push(0x80 + 8);
@@ -316,6 +314,7 @@ mod tests {
         bytes.push(0x80 + 32);
         bytes.extend_from_slice(&[1; 32]);
         bytes.push(0x80);
+        bytes.push(0xc0);
         for _ in 0..3 {
             bytes.push(0x80 + 32);
             bytes.extend_from_slice(&[1; 32]);
