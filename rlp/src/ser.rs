@@ -1,63 +1,84 @@
 use crate::{pack_rlp, DecodeError, RecursiveBytes, Rlp};
 use paste::paste;
 use serde::{ser, Serialize};
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Rc;
+
+#[derive(Debug)]
+enum RefRecursiveBytes {
+    Data(Vec<u8>),
+    Nested(Rc<RefCell<Vec<RefRecursiveBytes>>>),
+}
 
 pub struct Serializer {
-    output: Rlp,
-    /// holds references to the nested data structures in the rlp representation.
-    nesting: Vec<usize>,
+    output: VecDeque<RefRecursiveBytes>,
+    stack: Vec<Rc<RefCell<Vec<RefRecursiveBytes>>>>,
 }
 
 impl Serializer {
-    fn push(&mut self, rec: RecursiveBytes) {
-        self.output.0.push_back(rec);
-    }
+    /// pushes a new list to the most nested one we are currently in
+    fn new_list(&mut self) {
+        let rc_list = Rc::new(RefCell::new(Vec::with_capacity(0)));
+        let nested = RefRecursiveBytes::Nested(rc_list.clone());
 
-    /// safe to use because the structure is only appended to
-    fn len(&self) -> usize {
-        self.output.0.len()
-    }
-
-    fn get_mut(&mut self, index: usize) -> Option<&mut RecursiveBytes> {
-        self.output.0.get_mut(index)
-    }
-
-    fn get_nested_mut(&mut self, index: usize) -> Option<&mut VecDeque<RecursiveBytes>> {
-        self.get_mut(index).map(|rec| match rec {
-            RecursiveBytes::Nested(inner) => inner,
-            RecursiveBytes::Bytes(_) => panic!("invalid index pointing to Bytes"),
-        })
-    }
-
-    fn push_bytes(&mut self, bytes: Vec<u8>) {
-        if let Some(index) = self.nesting.last().copied() {
-            let nested = self.get_nested_mut(index).expect("missing nested from rlp");
-            nested.push_back(RecursiveBytes::Bytes(bytes));
+        if let Some(top) = self.stack.last_mut() {
+            top.borrow_mut().push(nested);
         } else {
-            self.push(RecursiveBytes::Bytes(bytes));
+            self.output.push_back(nested);
+        }
+
+        self.stack.push(rc_list);
+    }
+
+    /// forget about the reference to the nested list and go one level higher.
+    fn end_list(&mut self) {
+        self.stack.pop();
+    }
+
+    /// pushes bytes to the most nested list we are in or at the highest level.
+    fn push_bytes(&mut self, bytes: Vec<u8>) {
+        let bytes = RefRecursiveBytes::Data(dbg!(bytes));
+
+        if let Some(top) = self.stack.last_mut() {
+            top.borrow_mut().push(bytes);
+        } else {
+            self.output.push_back(bytes);
         }
     }
 
-    // TODO this doesn't support multi-level of nesting
-    // fix this so that it can find a reference to the nested list
-    fn new_list(&mut self) {
-        // create a new list and increase the level of nesting.
-        self.nesting.push(self.len());
-        self.push(RecursiveBytes::empty_list());
+    fn recursive_into_recursive_bytes(rec: RefRecursiveBytes) -> RecursiveBytes {
+        match rec {
+            RefRecursiveBytes::Data(bytes) => RecursiveBytes::Bytes(bytes),
+            RefRecursiveBytes::Nested(list) => {
+                let list = Rc::try_unwrap(list).unwrap().into_inner();
+                let rec_list = list
+                    .into_iter()
+                    .map(|el| Self::recursive_into_recursive_bytes(el))
+                    .collect();
+                RecursiveBytes::Nested(rec_list)
+            }
+        }
     }
 
-    fn end_list(&mut self) {
-        // forget about the reference to the nested list and go one level higher.
-        self.nesting.pop();
+    fn into_rlp(mut self) -> Rlp {
+        assert!(
+            self.stack.is_empty(),
+            "still have some elements on the worklist"
+        );
+        let mut rlp = Rlp::default();
+        while let Some(rec) = self.output.pop_front() {
+            rlp.0.push_back(Self::recursive_into_recursive_bytes(rec));
+        }
+        rlp
     }
 }
 
 impl Default for Serializer {
     fn default() -> Self {
         Self {
-            output: Rlp::new(VecDeque::new()),
-            nesting: Vec::new(),
+            output: VecDeque::new(),
+            stack: Vec::new(),
         }
     }
 }
@@ -66,12 +87,10 @@ pub(crate) fn to_rlp<T>(value: &T) -> Result<Rlp, DecodeError>
 where
     T: Serialize,
 {
-    let mut serializer = Serializer {
-        output: Rlp::new(VecDeque::new()),
-        nesting: Vec::new(),
-    };
+    let mut serializer = Serializer::default();
     value.serialize(&mut serializer)?;
-    Ok(dbg!(serializer.output))
+    dbg!(&serializer.output);
+    Ok(serializer.into_rlp())
 }
 
 pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, DecodeError>

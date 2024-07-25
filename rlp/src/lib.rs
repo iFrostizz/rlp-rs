@@ -48,19 +48,20 @@ impl Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone)]
 pub(crate) enum RecursiveBytes {
     Bytes(Vec<u8>),
-    Nested(VecDeque<RecursiveBytes>),
+    Nested(Vec<RecursiveBytes>),
 }
 
 impl RecursiveBytes {
     fn empty_list() -> Self {
-        RecursiveBytes::Nested(VecDeque::new())
+        RecursiveBytes::Nested(Vec::new())
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Rlp(VecDeque<RecursiveBytes>);
 
 impl Rlp {
@@ -81,15 +82,15 @@ impl Rlp {
 fn recursive_unpack_rlp(
     bytes: &[u8],
     mut cursor: usize,
-) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
+) -> Result<Vec<RecursiveBytes>, DecodeError> {
     let disc = if let Some(disc) = bytes.get(cursor) {
         *disc
     } else {
-        return Ok(VecDeque::new());
+        return Ok(Vec::new());
     };
     cursor += 1;
 
-    let mut unpacked = VecDeque::new();
+    let mut unpacked = Vec::new();
 
     let ret = if disc <= 127 {
         // TODO change me, maybe remove vec
@@ -149,14 +150,14 @@ fn recursive_unpack_rlp(
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     };
 
-    unpacked.push_back(ret);
+    unpacked.push(ret);
     unpacked.append(&mut recursive_unpack_rlp(bytes, cursor)?);
 
     Ok(unpacked)
 }
 
 pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, DecodeError> {
-    Ok(Rlp::new(recursive_unpack_rlp(bytes, 0)?))
+    Ok(Rlp::new(recursive_unpack_rlp(bytes, 0)?.into()))
 }
 
 fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {
@@ -237,8 +238,6 @@ pub(crate) fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, DecodeError> {
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-
     use super::{unpack_rlp, RecursiveBytes};
 
     #[test]
@@ -290,7 +289,7 @@ mod tests {
     #[test]
     fn unpack_empty_list() {
         let unpacked = unpack_rlp(&[0xc0][..]).unwrap();
-        assert_eq!(unpacked.0, vec![RecursiveBytes::Nested(VecDeque::new())]);
+        assert_eq!(unpacked.0, vec![RecursiveBytes::Nested(Vec::new())]);
     }
 
     #[test]

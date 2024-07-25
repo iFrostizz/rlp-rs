@@ -2,7 +2,6 @@ use crate::{unpack_rlp, DecodeError, RecursiveBytes, Rlp};
 use paste::paste;
 use serde::de::{EnumAccess, SeqAccess, VariantAccess};
 use serde::{Deserialize, Deserializer};
-use std::collections::VecDeque;
 
 macro_rules! parse_int {
     ($ty:ty) => {
@@ -40,7 +39,7 @@ impl Rlp {
         Ok(bytes)
     }
 
-    fn need_nested(&mut self) -> Result<VecDeque<RecursiveBytes>, DecodeError> {
+    fn need_nested(&mut self) -> Result<Vec<RecursiveBytes>, DecodeError> {
         let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(DecodeError::MissingBytes)?
         else {
             return Err(DecodeError::ExpectedList);
@@ -415,7 +414,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
             }
             RecursiveBytes::Nested(recs) => {
                 // flatten structure
-                *self = Rlp::new(recs);
+                *self = Rlp::new(recs.into());
                 self.deserialize_str(visitor)
             }
         }
