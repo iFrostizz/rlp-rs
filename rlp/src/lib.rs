@@ -48,7 +48,7 @@ impl std::error::Error for RlpError {}
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
-pub(crate) enum RecursiveBytes {
+pub enum RecursiveBytes {
     Bytes(Vec<u8>),
     Nested(Vec<RecursiveBytes>),
 }
@@ -61,7 +61,34 @@ impl RecursiveBytes {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Rlp(VecDeque<RecursiveBytes>);
+pub struct Rlp(VecDeque<RecursiveBytes>);
+
+impl IntoIterator for Rlp {
+    type Item = Rlp;
+
+    type IntoIter = RlpIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RlpIntoIter(self.0.into_iter())
+    }
+}
+
+pub struct RlpIntoIter(std::collections::vec_deque::IntoIter<RecursiveBytes>);
+
+impl Iterator for RlpIntoIter {
+    type Item = Rlp;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0
+            .next()
+            .map(|el| {
+                let mut deque = VecDeque::new();
+                deque.push_back(el);
+                deque
+            })
+            .map(Rlp)
+    }
+}
 
 impl Rlp {
     fn new(inner: VecDeque<RecursiveBytes>) -> Self {
@@ -75,6 +102,22 @@ impl Rlp {
     fn pop_front(&mut self) -> Option<RecursiveBytes> {
         self.0.pop_front()
     }
+
+    pub fn flatten_nested(&mut self) -> Option<Self> {
+        if self.0.len() != 1 {
+            return None;
+        }
+
+        let nested = self.need_nested().ok()?;
+        Some(Rlp::new(nested.into()))
+    }
+
+    pub fn get_nested(&self, index: usize) -> Result<&[RecursiveBytes], RlpError> {
+        let RecursiveBytes::Nested(recs) = self.0.get(index).ok_or(RlpError::MissingBytes)? else {
+            return Err(RlpError::ExpectedList);
+        };
+        Ok(recs)
+    }
 }
 
 // run a BFS to unpack the rlp
@@ -85,7 +128,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         return Ok(Vec::new());
     };
     cursor += 1;
-    println!("{:?}", &bytes);
+    // println!("{:?}", &bytes);
 
     let mut unpacked = Vec::new();
 
@@ -130,7 +173,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         // we want to represent empty lists so don't remove them
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     } else {
-        let len_bytes_len = disc - 0xf8;
+        let len_bytes_len = disc - 0xf7;
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
@@ -153,7 +196,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
     Ok(unpacked)
 }
 
-pub(crate) fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
+pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
     Ok(Rlp::new(recursive_unpack_rlp(bytes, 0)?.into()))
 }
 
@@ -199,7 +242,7 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
         vec![0xc0 + len as u8]
     } else {
         let mut len_bytes = parse_num(len.to_be_bytes()).unwrap();
-        let mut bytes = vec![0xf8 + len_bytes.len() as u8];
+        let mut bytes = vec![0xf7 + len_bytes.len() as u8];
         bytes.append(&mut len_bytes);
         bytes
     };

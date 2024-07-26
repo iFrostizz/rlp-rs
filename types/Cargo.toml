@@ -9,3 +9,4 @@ serde_bytes = { workspace = true }
 rlp-rs = { workspace = true }
 
 [dev-dependencies]
+hex = "0.4.3"

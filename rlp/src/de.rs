@@ -22,15 +22,22 @@ where
     T::deserialize(rlp)
 }
 
-pub fn from_bytes<'a, T>(bytes: Vec<u8>) -> Result<T, RlpError>
+pub fn from_bytes<'a, T>(bytes: &[u8]) -> Result<T, RlpError>
 where
     T: Deserialize<'a>,
 {
-    let rlp = &mut dbg!(unpack_rlp(&bytes))?;
+    let rlp = &mut unpack_rlp(bytes)?;
     T::deserialize(rlp)
 }
 
 impl Rlp {
+    pub fn read_bytes(&self) -> Result<&[u8], RlpError> {
+        let RecursiveBytes::Bytes(bytes) = self.0.front().ok_or(RlpError::MissingBytes)? else {
+            return Err(RlpError::ExpectedBytes);
+        };
+        Ok(bytes.as_slice())
+    }
+
     fn need_bytes(&mut self) -> Result<Vec<u8>, RlpError> {
         let RecursiveBytes::Bytes(bytes) = self.0.pop_front().ok_or(RlpError::MissingBytes)? else {
             return Err(RlpError::ExpectedBytes);
@@ -38,7 +45,7 @@ impl Rlp {
         Ok(bytes)
     }
 
-    fn need_nested(&mut self) -> Result<Vec<RecursiveBytes>, RlpError> {
+    pub(crate) fn need_nested(&mut self) -> Result<Vec<RecursiveBytes>, RlpError> {
         let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(RlpError::MissingBytes)? else {
             return Err(RlpError::ExpectedList);
         };
@@ -50,9 +57,13 @@ impl Rlp {
     }
 
     fn need_bytes_len<const S: usize>(&mut self) -> Result<[u8; S], RlpError> {
-        let bytes = self.need_bytes()?;
-        if bytes.len() != S {
+        let mut bytes = self.need_bytes()?;
+        // if bytes.len() != S {
+        if bytes.len() > S {
             return Err(RlpError::InvalidLength);
+        }
+        for _ in 0..(S - bytes.len()) {
+            bytes.insert(0, 0);
         }
         Ok(bytes.try_into().unwrap())
     }
@@ -448,13 +459,13 @@ mod tests {
         let num: i8 = from_rlp(rlp).unwrap();
         assert_eq!(num, -128);
 
-        let num: i8 = from_bytes(vec![127]).unwrap();
+        let num: i8 = from_bytes(&[127]).unwrap();
         assert_eq!(num, 127);
 
-        let num: i8 = from_bytes(vec![0]).unwrap();
+        let num: i8 = from_bytes(&[0]).unwrap();
         assert_eq!(num, 0);
 
-        let num: i8 = from_bytes(vec![0x81, 255]).unwrap();
+        let num: i8 = from_bytes(&[0x81, 255]).unwrap();
         assert_eq!(num, -1);
     }
 
@@ -465,16 +476,11 @@ mod tests {
         assert_eq!(num, u32::MAX);
 
         assert!(matches!(
-            from_bytes::<u32>(vec![0x83, 255, 255, 255, 255]),
+            from_bytes::<u32>(&[0x83, 255, 255, 255, 255]),
             Err(RlpError::MissingBytes)
         ));
 
-        assert!(matches!(
-            from_bytes::<u32>(vec![0x82, 255, 255]),
-            Err(RlpError::InvalidLength)
-        ));
-
-        let num: u32 = from_bytes(vec![0x84, 0, 0, 0, 23]).unwrap();
+        let num: u32 = from_bytes(&[0x84, 0, 0, 0, 23]).unwrap();
         assert_eq!(num, 23);
     }
 
@@ -497,7 +503,7 @@ mod tests {
     #[test]
     fn de_seq_string() {
         let cat_dog: [String; 2] =
-            from_bytes(vec![0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
+            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
     }
 
@@ -505,7 +511,7 @@ mod tests {
     fn de_seq_cow() {
         // alternative to &str
         let cat_dog: [Cow<'_, str>; 2] =
-            from_bytes(vec![0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
+            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
     }
 
@@ -529,7 +535,7 @@ mod tests {
             ])]
         );
 
-        assert_eq!(from_bytes::<Vec<String>>(bytes).unwrap(), vec![cat, dog]);
+        assert_eq!(from_bytes::<Vec<String>>(&bytes).unwrap(), vec![cat, dog]);
     }
 
     #[test]
@@ -553,7 +559,7 @@ mod tests {
         bytes.extend_from_slice(sound.as_bytes());
         bytes.push(age);
 
-        let dog: Dog = from_bytes(bytes).unwrap();
+        let dog: Dog = from_bytes(&bytes).unwrap();
         assert_eq!(dog, Dog { name, sound, age })
     }
 
@@ -567,11 +573,11 @@ mod tests {
             Kebab = 2,
         }
 
-        assert_eq!(from_bytes::<Food>(vec![0x00]).unwrap(), Food::Pizza);
-        assert_eq!(from_bytes::<Food>(vec![0x01]).unwrap(), Food::Ramen);
-        assert_eq!(from_bytes::<Food>(vec![0x02]).unwrap(), Food::Kebab);
-        assert!(from_bytes::<Food>(vec![0x03]).is_err());
-        assert!(from_bytes::<Food>(vec![255]).is_err());
+        assert_eq!(from_bytes::<Food>(&[0x00]).unwrap(), Food::Pizza);
+        assert_eq!(from_bytes::<Food>(&[0x01]).unwrap(), Food::Ramen);
+        assert_eq!(from_bytes::<Food>(&[0x02]).unwrap(), Food::Kebab);
+        assert!(from_bytes::<Food>(&[0x03]).is_err());
+        assert!(from_bytes::<Food>(&[255]).is_err());
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -586,7 +592,7 @@ mod tests {
     fn de_enum_unit() {
         let mut message = vec![0x80 + "Quit".len() as u8];
         message.extend_from_slice("Quit".as_bytes());
-        assert_eq!(from_bytes::<Message>(message).unwrap(), Message::Quit);
+        assert_eq!(from_bytes::<Message>(&message).unwrap(), Message::Quit);
     }
 
     #[test]
@@ -596,7 +602,7 @@ mod tests {
         message.push(0x80 + "Hello world".len() as u8);
         message.extend_from_slice("Hello world".as_bytes());
         assert_eq!(
-            from_bytes::<Message>(message).unwrap(),
+            from_bytes::<Message>(&message).unwrap(),
             Message::Write(String::from("Hello world"))
         )
     }
@@ -628,7 +634,7 @@ mod tests {
         );
 
         assert_eq!(
-            from_bytes::<Message>(message).unwrap(),
+            from_bytes::<Message>(&message).unwrap(),
             Message::Move { x: -1, y: -1 }
         );
     }
@@ -661,7 +667,7 @@ mod tests {
         );
 
         assert_eq!(
-            from_bytes::<Message>(message).unwrap(),
+            from_bytes::<Message>(&message).unwrap(),
             Message::ChangeColor(-1, -212412, 2147483647)
         );
     }

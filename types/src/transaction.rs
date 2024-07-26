@@ -1,7 +1,9 @@
 use crate::primitives::{Address, SerdeU256, U256};
-use rlp_rs::RlpError;
+use rlp_rs::{from_bytes, RecursiveBytes, Rlp, RlpError};
+use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TransactionEnvelope {
@@ -10,49 +12,81 @@ pub enum TransactionEnvelope {
     DynamicFee(TransactionDynamicFee),
 }
 
+// a transaction envelope is not really RLP but here we go ...
+impl Serialize for TransactionEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            TransactionEnvelope::Legacy(legacy) => legacy.serialize(serializer),
+            TransactionEnvelope::AccessList(access_list) => {
+                let mut serializer = serializer.serialize_tuple(2)?;
+                serializer.serialize_element(&self.tx_type())?;
+                serializer.serialize_element(access_list)?;
+                serializer.end()
+            }
+            TransactionEnvelope::DynamicFee(dynamic_fee) => {
+                let mut serializer = serializer.serialize_tuple(2)?;
+                serializer.serialize_element(&self.tx_type())?;
+                serializer.serialize_element(dynamic_fee)?;
+                serializer.end()
+            }
+        }
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TxEnv {
+    Legacy(TransactionLegacy),
+    Eip2718(u8, #[serde(with = "serde_bytes")] Vec<u8>),
+}
+
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionLegacy {
-    nonce: u64,
+    pub nonce: u64,
     #[serde(with = "serde_bytes")]
-    gas_price: U256,
-    gas_limit: u64,
+    pub gas_price: U256,
+    pub gas_limit: u64,
     #[serde(with = "serde_bytes")]
-    to: Address,
+    pub to: Address,
     #[serde(with = "serde_bytes")]
-    value: U256,
+    pub value: U256,
     #[serde(with = "serde_bytes")]
-    data: Vec<u8>,
+    pub data: Vec<u8>,
     #[serde(with = "serde_bytes")]
-    v: U256,
+    pub v: U256,
     #[serde(with = "serde_bytes")]
-    r: U256,
+    pub r: U256,
     #[serde(with = "serde_bytes")]
-    s: U256,
+    pub s: U256,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionAccessList {
     #[serde(with = "serde_bytes")]
-    chain_id: U256,
-    nonce: u64,
+    pub chain_id: U256,
+    pub nonce: u64,
     #[serde(with = "serde_bytes")]
-    gas_price: U256,
-    gas_limit: u64,
+    pub gas_price: U256,
+    pub gas_limit: u64,
     #[serde(with = "serde_bytes")]
-    to: Address,
+    pub to: Address,
     #[serde(with = "serde_bytes")]
-    value: U256,
+    pub value: U256,
     #[serde(with = "serde_bytes")]
-    data: Vec<u8>,
-    access_list: Vec<AccessList>,
+    pub data: Vec<u8>,
+    pub access_list: Vec<AccessList>,
     #[serde(with = "serde_bytes")]
-    y_parity: U256,
+    pub y_parity: U256,
     #[serde(with = "serde_bytes")]
-    r: U256,
+    pub r: U256,
     #[serde(with = "serde_bytes")]
-    s: U256,
+    pub s: U256,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -112,6 +146,34 @@ impl TransactionEnvelope {
         Ok(bytes)
     }
 
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        let disc = bytes.first().ok_or(RlpError::MissingBytes)?;
+        let tx = match disc {
+            1 => TransactionEnvelope::AccessList(from_bytes(&bytes[1..])?),
+            2 => TransactionEnvelope::DynamicFee(from_bytes(&bytes[1..])?),
+            rest if *rest >= 0xf8 => TransactionEnvelope::Legacy(from_bytes(bytes)?),
+            _ => return Err(RlpError::InvalidBytes),
+        };
+        Ok(tx)
+    }
+
+    pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
+        let rlp = &mut rlp;
+        let tx_inner = rlp.get_nested(0)?;
+        let rec = tx_inner.first().ok_or(RlpError::MissingBytes)?;
+        let RecursiveBytes::Bytes(disc) = rec else {
+            return Err(RlpError::ExpectedBytes);
+        };
+
+        let tx = match disc[..] {
+            [1] => TransactionEnvelope::AccessList(TransactionAccessList::deserialize(rlp)?),
+            [2] => TransactionEnvelope::DynamicFee(TransactionDynamicFee::deserialize(rlp)?),
+            _ => TransactionEnvelope::Legacy(TransactionLegacy::deserialize(rlp)?),
+        };
+
+        Ok(tx)
+    }
+
     pub fn legacy() -> Self {
         todo!()
     }
@@ -162,7 +224,7 @@ mod tests {
             .position(|b| b > &0)
             .map(|i| &size_bytes[i..])
             .unwrap();
-        let mut bytes = vec![0xf8 + size_bytes.len() as u8];
+        let mut bytes = vec![0xf7 + size_bytes.len() as u8];
 
         bytes.extend_from_slice(size_bytes);
         bytes.push(0x80 + 8);
@@ -214,7 +276,7 @@ mod tests {
             .unwrap();
 
         let mut bytes = vec![0x01]; // tx_type
-        bytes.push(0xf8 + size_bytes.len() as u8);
+        bytes.push(0xf7 + size_bytes.len() as u8);
         bytes.extend_from_slice(size_bytes);
         bytes.push(0x80 + 32);
         bytes.extend_from_slice(&[1; 32]); // chain id
@@ -270,7 +332,7 @@ mod tests {
             .unwrap();
 
         let mut bytes = vec![0x02];
-        bytes.push(0xf8 + size_bytes.len() as u8);
+        bytes.push(0xf7 + size_bytes.len() as u8);
         bytes.extend_from_slice(size_bytes);
         bytes.push(0x80 + 32);
         bytes.extend_from_slice(&[1; 32]);
@@ -296,7 +358,7 @@ mod tests {
 
         serialized.remove(0); // remove tx_type
 
-        let deserialized: TransactionDynamicFee = dbg!(from_bytes(serialized)).unwrap();
+        let deserialized: TransactionDynamicFee = from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);
     }
 }
