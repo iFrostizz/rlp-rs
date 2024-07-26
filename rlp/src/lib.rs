@@ -128,7 +128,6 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         return Ok(Vec::new());
     };
     cursor += 1;
-    // println!("{:?}", &bytes);
 
     let mut unpacked = Vec::new();
 
@@ -189,7 +188,6 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
     };
 
-    println!("{:?}", &ret);
     unpacked.push(ret);
     unpacked.append(&mut recursive_unpack_rlp(bytes, cursor)?);
 

@@ -10,3 +10,8 @@ rlp-rs = { workspace = true }
 
 [dev-dependencies]
 hex = "0.4.3"
+criterion = "0.3"
+
+[[bench]]
+name = "block_decoding"
+harness = false

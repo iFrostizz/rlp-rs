@@ -13,7 +13,7 @@ pub struct Block {
 
 impl Block {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let raw_rlp = dbg!(unpack_rlp(bytes))?;
+        let raw_rlp = unpack_rlp(bytes)?;
         let rlp_iter = &mut raw_rlp.into_iter();
         let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
         if rlp_iter.next().is_some() {
