@@ -53,10 +53,14 @@ pub enum RecursiveBytes {
     Nested(Vec<RecursiveBytes>),
 }
 
-#[cfg(test)]
 impl RecursiveBytes {
+    #[cfg(test)]
     fn empty_list() -> Self {
         RecursiveBytes::Nested(Vec::new())
+    }
+
+    pub fn into_rlp(self) -> Rlp {
+        Rlp::new_unary(self)
     }
 }
 
@@ -91,15 +95,24 @@ impl Iterator for RlpIntoIter {
 }
 
 impl Rlp {
-    fn new(inner: VecDeque<RecursiveBytes>) -> Self {
+    pub fn new(inner: VecDeque<RecursiveBytes>) -> Self {
         Rlp(inner)
     }
 
-    fn new_unary(inner: RecursiveBytes) -> Self {
+    pub fn new_unary(inner: RecursiveBytes) -> Self {
         Rlp(vec![inner].into())
     }
 
-    fn pop_front(&mut self) -> Option<RecursiveBytes> {
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&RecursiveBytes> {
+        self.0.get(index)
+    }
+
+    pub fn pop_front(&mut self) -> Option<RecursiveBytes> {
         self.0.pop_front()
     }
 

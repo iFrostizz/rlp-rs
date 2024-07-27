@@ -6,4 +6,4 @@ pub type U256 = [u8; 32];
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SerdeU256(#[serde(with = "serde_bytes")] U256);
+pub struct SerdeU256(#[serde(with = "serde_bytes")] pub U256);

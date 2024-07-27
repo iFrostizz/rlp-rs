@@ -27,8 +27,10 @@ it has been patched to prepend these `0` manually when deserializing to an array
 
 ## TODO
 
-- [x] Finish implementing all types
+- [x] Finish implementing serde
+- [ ] Better serde error handling
 - [ ] Reorder functions around
+- [ ] Better API with nice parsing functions
 - [ ] Benches
 - [ ] Provide RLP-ready useful types 
     - [x] Add a crate `types`

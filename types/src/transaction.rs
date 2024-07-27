@@ -1,5 +1,5 @@
 use crate::primitives::{Address, SerdeU256, U256};
-use rlp_rs::{from_bytes, RecursiveBytes, Rlp, RlpError};
+use rlp_rs::{from_bytes, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
@@ -34,14 +34,6 @@ impl Serialize for TransactionEnvelope {
             }
         }
     }
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum TxEnv {
-    Legacy(TransactionLegacy),
-    Eip2718(u8, #[serde(with = "serde_bytes")] Vec<u8>),
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -93,36 +85,36 @@ pub struct TransactionAccessList {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionDynamicFee {
     #[serde(with = "serde_bytes")]
-    chain_id: U256,
-    nonce: u64,
+    pub chain_id: U256,
+    pub nonce: u64,
     #[serde(with = "serde_bytes")]
-    max_priority_fee_per_gas: U256,
+    pub max_priority_fee_per_gas: U256,
     #[serde(with = "serde_bytes")]
-    max_fee_per_gas: U256,
-    gas_limit: u64,
+    pub max_fee_per_gas: U256,
+    pub gas_limit: u64,
     #[serde(with = "serde_bytes")]
-    destination: Address,
+    pub destination: Address,
     #[serde(with = "serde_bytes")]
-    amount: U256,
+    pub amount: U256,
     #[serde(with = "serde_bytes")]
-    data: Vec<u8>,
-    access_list: Vec<AccessList>,
+    pub data: Vec<u8>,
+    pub access_list: Vec<AccessList>,
     #[serde(with = "serde_bytes")]
-    y_parity: U256,
+    pub y_parity: U256,
     #[serde(with = "serde_bytes")]
-    r: U256,
+    pub r: U256,
     #[serde(with = "serde_bytes")]
-    s: U256,
+    pub s: U256,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccessList {
     #[serde(with = "serde_bytes")]
-    address: Address,
+    pub address: Address,
     // serde_bytes wouldn't figure out this, so use a wrapper type that implements
     // Serialize and Deserialize and that is annotated with serde_bytes
-    storage_keys: Vec<SerdeU256>,
+    pub storage_keys: Vec<SerdeU256>,
 }
 
 impl TransactionEnvelope {
@@ -157,21 +149,36 @@ impl TransactionEnvelope {
         Ok(tx)
     }
 
-    pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
-        let rlp = &mut rlp;
-        let tx_inner = rlp.get_nested(0)?;
-        let rec = tx_inner.first().ok_or(RlpError::MissingBytes)?;
-        let RecursiveBytes::Bytes(disc) = rec else {
-            return Err(RlpError::ExpectedBytes);
-        };
-
-        let tx = match disc[..] {
-            [1] => TransactionEnvelope::AccessList(TransactionAccessList::deserialize(rlp)?),
-            [2] => TransactionEnvelope::DynamicFee(TransactionDynamicFee::deserialize(rlp)?),
-            _ => TransactionEnvelope::Legacy(TransactionLegacy::deserialize(rlp)?),
+    /// decode an rlp encoded transaction with an expected tx_type
+    fn decode_transaction(rlp: &mut Rlp, tx_type: u8) -> Result<Self, RlpError> {
+        let tx = match tx_type {
+            0 => TransactionEnvelope::Legacy(TransactionLegacy::deserialize(rlp)?),
+            1 => TransactionEnvelope::AccessList(TransactionAccessList::deserialize(rlp)?),
+            2 => TransactionEnvelope::DynamicFee(TransactionDynamicFee::deserialize(rlp)?),
+            _ => return Err(RlpError::InvalidBytes),
         };
 
         Ok(tx)
+    }
+
+    pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
+        let tx_type = match rlp.get(0) {
+            Some(RecursiveBytes::Nested(_)) => 0,
+            Some(RecursiveBytes::Bytes(bytes)) => {
+                let tx_type = match bytes.first().ok_or(RlpError::MissingBytes)? {
+                    1 => 1,
+                    2 => 2,
+                    _ => return Err(RlpError::InvalidBytes),
+                };
+
+                rlp = unpack_rlp(&bytes[1..])?;
+
+                tx_type
+            }
+            _ => return Err(RlpError::InvalidBytes),
+        };
+
+        Self::decode_transaction(&mut rlp, tx_type)
     }
 
     pub fn legacy() -> Self {
