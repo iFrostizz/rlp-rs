@@ -279,7 +279,7 @@ fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, 
     }
 }
 
-pub(crate) fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
+pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
     let mut pack = Vec::new();
     while let Some(rec) = rlp.pop_front() {
         recursive_pack_rlp(rec, &mut pack)?;

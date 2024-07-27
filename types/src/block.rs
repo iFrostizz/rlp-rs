@@ -1,6 +1,6 @@
 use crate::primitives::{Address, U256};
 use crate::TransactionEnvelope;
-use rlp_rs::{unpack_rlp, RecursiveBytes, Rlp, RlpError};
+use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
 
@@ -15,18 +15,11 @@ pub struct Block {
 impl Block {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
+
         let rlp_iter = &mut raw_rlp.into_iter();
         let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
-        if rlp_iter.next().is_some() {
-            return Err(RlpError::InvalidLength);
-        }
 
         let flat_rlp = rlp_inner.flatten_nested().ok_or(RlpError::ExpectedList)?;
-
-        if flat_rlp.len() != 3 {
-            return Err(RlpError::InvalidBytes);
-        }
-
         let rlp_iter = &mut flat_rlp.into_iter();
 
         let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
@@ -121,19 +114,24 @@ pub enum Header {
         excess_blob_gas: u64,
         parent_beacon_block_root: U256,
     },
+    Unknown {
+        common: CommonHeader,
+        rest: Vec<Vec<u8>>,
+    },
 }
 
 impl Header {
     pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
         let rlp = &mut rlp;
-        let rlp = &mut rlp.flatten_nested().ok_or(RlpError::MissingBytes)?;
+        let mut rlp = rlp.flatten_nested().ok_or(RlpError::MissingBytes)?;
 
         let fields = rlp.len();
         let common_fields = CommonHeader::fields();
         let london_fields = common_fields + 1;
         let shanghai_fields = london_fields + 1;
         let cancun_fields = shanghai_fields + 3;
-        if fields > cancun_fields {
+
+        if fields < common_fields {
             return Err(RlpError::InvalidBytes);
         }
 
@@ -144,48 +142,56 @@ impl Header {
         let common_rlp = &mut Rlp::new_unary(nested);
         let common = CommonHeader::deserialize(common_rlp)?;
 
-        let header = if fields == CommonHeader::fields() {
-            Header::Legacy { common }
-        } else if fields >= london_fields {
-            // TODO provide helpers for those
-            let base_fee = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
-            let base_fee = *ByteArray::deserialize(&mut base_fee.into_rlp())
-                .map_err(|_| RlpError::MissingBytes)?;
-
-            if fields >= shanghai_fields {
-                let withdrawal_root = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
-                let withdrawal_root = *ByteArray::deserialize(&mut withdrawal_root.into_rlp())
+        let header = match fields {
+            15 => Header::Legacy { common },
+            16 | 17 | 20 => {
+                // TODO provide helpers for those
+                let base_fee = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
+                let base_fee = *ByteArray::deserialize(&mut base_fee.into_rlp())
                     .map_err(|_| RlpError::MissingBytes)?;
 
-                todo!();
-
-                if fields >= cancun_fields {
-                    let blob_gas_used = u64::deserialize(
-                        &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                    )?;
-                    let excess_blob_gas = u64::deserialize(
-                        &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                    )?;
-                    let parent_beacon_block_root = U256::deserialize(
-                        &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                    )?;
-
-                    Header::Cancun {
-                        common,
-                        base_fee,
-                        withdrawal_root,
-                        blob_gas_used,
-                        excess_blob_gas,
-                        parent_beacon_block_root,
-                    }
+                if fields == london_fields {
+                    Header::London { common, base_fee }
                 } else {
-                    unreachable!()
+                    let withdrawal_root = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
+                    let withdrawal_root = *ByteArray::deserialize(&mut withdrawal_root.into_rlp())
+                        .map_err(|_| RlpError::MissingBytes)?;
+
+                    if fields == shanghai_fields {
+                        Header::Shanghai {
+                            common,
+                            base_fee,
+                            withdrawal_root,
+                        }
+                    } else {
+                        let blob_gas_used = u64::deserialize(
+                            &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                        )?;
+                        let excess_blob_gas = u64::deserialize(
+                            &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                        )?;
+                        let parent_beacon_block_root = U256::deserialize(
+                            &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                        )?;
+
+                        Header::Cancun {
+                            common,
+                            base_fee,
+                            withdrawal_root,
+                            blob_gas_used,
+                            excess_blob_gas,
+                            parent_beacon_block_root,
+                        }
+                    }
                 }
-            } else {
-                Header::London { common, base_fee }
             }
-        } else {
-            unreachable!()
+            _ => {
+                let rest = rlp
+                    .into_iter()
+                    .map(pack_rlp)
+                    .collect::<Result<Vec<Vec<u8>>, _>>()?;
+                Header::Unknown { common, rest }
+            }
         };
 
         Ok(header)
