@@ -10,6 +10,7 @@ pub enum TransactionEnvelope {
     Legacy(TransactionLegacy),
     AccessList(TransactionAccessList),
     DynamicFee(TransactionDynamicFee),
+    // TODO Blob transaction
 }
 
 // a transaction envelope is not really RLP but here we go ...
