@@ -153,6 +153,7 @@ impl Header {
                 if fields == london_fields {
                     Header::London { common, base_fee }
                 } else {
+                    assert_eq!(fields, cancun_fields);
                     let withdrawal_root = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
                     let withdrawal_root = *ByteArray::deserialize(&mut withdrawal_root.into_rlp())
                         .map_err(|_| RlpError::MissingBytes)?;
