@@ -194,10 +194,11 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::SerdeU256;
-    use crate::transaction::{AccessList, TransactionAccessList, TransactionDynamicFee};
-
     use super::*;
+    use crate::primitives::SerdeU256;
+    use crate::transaction::{
+        AccessList, TransactionAccessList, TransactionDynamicFee, TransactionLegacy,
+    };
 
     // https://github.com/ethereum/go-ethereum/blob/4dfc75deefd2d68fba682d089d9ae61771c19d66/core/types/block_test.go#L34
     #[test]
@@ -207,41 +208,109 @@ mod tests {
         let Header::Legacy { common } = block.header else {
             panic!("invalid block header kind");
         };
-        // TODO wrapper types that does that for us
-        assert_eq!(&common.difficulty[24..], 131072u64.to_be_bytes());
-        assert_eq!(common.gas_limit, 3141592);
-        assert_eq!(common.gas_used, 21000);
-        assert_eq!(
-            common.coinbase.to_vec(),
-            hex::decode("8888f1f195afa192cfee860698584c030f4c9db1").unwrap()
-        );
-        assert_eq!(
-            common.mix_digest.to_vec(),
-            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
-                .unwrap()
-        );
-        assert_eq!(
-            common.state_root.to_vec(),
+
+        let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let state_root =
             hex::decode("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017")
                 .unwrap()
+                .try_into()
+                .unwrap();
+        let mix_digest =
+            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let difficulty = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&131072u64.to_be_bytes());
+            arr
+        };
+        let number = {
+            let mut arr = [0; 32];
+            arr[31] = 1;
+            arr
+        };
+
+        assert_eq!(
+            common,
+            CommonHeader {
+                parent_hash: [
+                    131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
+                    66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
+                ],
+                uncle_hash: [
+                    29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
+                    211, 18, 69, 27, 148, 138, 116, 19, 240, 161, 66, 253, 64, 212, 147, 71
+                ],
+                coinbase,
+                state_root,
+                tx_root: [
+                    95, 229, 11, 38, 13, 166, 48, 128, 54, 98, 91, 133, 11, 93, 108, 237, 109, 10,
+                    159, 129, 76, 6, 136, 188, 145, 255, 183, 183, 163, 165, 75, 103
+                ],
+                receipt_hash: [
+                    188, 55, 215, 151, 83, 173, 115, 138, 109, 172, 73, 33, 229, 115, 146, 241, 69,
+                    216, 136, 116, 118, 222, 63, 120, 61, 250, 126, 218, 233, 40, 62, 82
+                ],
+                bloom: [0; 256],
+                difficulty,
+                number,
+                gas_limit: 3141592,
+                gas_used: 21000,
+                time: 1426516743,
+                extra: vec![],
+                mix_digest,
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196]
+            }
         );
-        assert_eq!(common.nonce, 0xa13a5a8c8f2bb1c4u64.to_be_bytes());
-        assert_eq!(common.time, 1426516743);
 
         assert_eq!(block.transactions.len(), 1);
         let transaction = block.transactions.first().unwrap();
         let TransactionEnvelope::Legacy(transaction) = transaction else {
             panic!("not a legacy transaction");
         };
-        assert_eq!(transaction.nonce, 0);
+
+        let gas_price = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&10u64.to_be_bytes());
+            arr
+        };
+        let to = hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let value = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&10u64.to_be_bytes());
+            arr
+        };
+
         assert_eq!(
-            transaction.to.to_vec(),
-            hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87").unwrap()
+            transaction,
+            &TransactionLegacy {
+                nonce: 0,
+                gas_price,
+                gas_limit: 50000,
+                to,
+                value,
+                data: vec![],
+                v: [
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 27
+                ],
+                r: [
+                    155, 234, 76, 77, 170, 199, 199, 197, 46, 9, 62, 106, 76, 53, 219, 188, 248,
+                    133, 111, 26, 247, 176, 89, 186, 32, 37, 62, 112, 132, 141, 9, 79
+                ],
+                s: [
+                    138, 143, 174, 83, 124, 226, 94, 216, 203, 90, 249, 173, 172, 63, 20, 26, 246,
+                    155, 213, 21, 189, 43, 160, 49, 82, 45, 240, 155, 151, 221, 114, 177
+                ]
+            }
         );
-        assert_eq!(&transaction.value[24..], 10u64.to_be_bytes());
-        assert_eq!(transaction.gas_limit, 50000);
-        assert_eq!(&transaction.gas_price[24..], 10u64.to_be_bytes());
-        assert!(transaction.data.is_empty());
     }
 
     // TODO equal the whole CommonHeader structure
@@ -252,25 +321,64 @@ mod tests {
         let Header::London { common, base_fee } = block.header else {
             panic!("unexpected header kind");
         };
-        assert_eq!(&common.difficulty[24..], &131072u64.to_be_bytes());
-        assert_eq!(common.gas_limit, 3141592);
-        assert_eq!(common.gas_used, 21000);
-        assert_eq!(
-            common.coinbase.to_vec(),
-            hex::decode("8888f1f195afa192cfee860698584c030f4c9db1").unwrap()
-        );
-        assert_eq!(
-            common.mix_digest.to_vec(),
-            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
-                .unwrap()
-        );
-        assert_eq!(
-            common.state_root.to_vec(),
+
+        let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let state_root =
             hex::decode("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017")
                 .unwrap()
+                .try_into()
+                .unwrap();
+        let difficulty = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&131072u64.to_be_bytes());
+            arr
+        };
+        let number = {
+            let mut arr = [0; 32];
+            arr[31] = 1;
+            arr
+        };
+        let mix_digest =
+            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
+                .unwrap()
+                .try_into()
+                .unwrap();
+
+        assert_eq!(
+            common,
+            CommonHeader {
+                parent_hash: [
+                    131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
+                    66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
+                ],
+                uncle_hash: [
+                    29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
+                    211, 18, 69, 27, 148, 138, 116, 19, 240, 161, 66, 253, 64, 212, 147, 71
+                ],
+                coinbase,
+                state_root,
+                tx_root: [
+                    95, 229, 11, 38, 13, 166, 48, 128, 54, 98, 91, 133, 11, 93, 108, 237, 109, 10,
+                    159, 129, 76, 6, 136, 188, 145, 255, 183, 183, 163, 165, 75, 103
+                ],
+                receipt_hash: [
+                    188, 55, 215, 151, 83, 173, 115, 138, 109, 172, 73, 33, 229, 115, 146, 241, 69,
+                    216, 136, 116, 118, 222, 63, 120, 61, 250, 126, 218, 233, 40, 62, 82
+                ],
+                bloom: [0; 256],
+                difficulty,
+                number,
+                gas_limit: 3141592,
+                gas_used: 21000,
+                time: 1426516743,
+                extra: vec![],
+                mix_digest,
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196]
+            }
         );
-        assert_eq!(common.nonce, 0xa13a5a8c8f2bb1c4u64.to_be_bytes());
-        assert_eq!(common.time, 1426516743);
 
         assert_eq!(block.transactions.len(), 2);
 
@@ -279,20 +387,48 @@ mod tests {
             panic!("invalid tx");
         };
 
-        assert_eq!(tx1.nonce, 0);
+        let gas_price = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&10u64.to_be_bytes());
+            arr
+        };
+        let to = hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let value = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&10u64.to_be_bytes());
+            arr
+        };
+
         assert_eq!(
-            tx1.to.to_vec(),
-            hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87").unwrap()
+            tx1,
+            TransactionLegacy {
+                nonce: 0,
+                gas_price,
+                gas_limit: 50000,
+                to,
+                value,
+                data: vec![],
+                v: [
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 27
+                ],
+                r: [
+                    155, 234, 76, 77, 170, 199, 199, 197, 46, 9, 62, 106, 76, 53, 219, 188, 248,
+                    133, 111, 26, 247, 176, 89, 186, 32, 37, 62, 112, 132, 141, 9, 79
+                ],
+                s: [
+                    138, 143, 174, 83, 124, 226, 94, 216, 203, 90, 249, 173, 172, 63, 20, 26, 246,
+                    155, 213, 21, 189, 43, 160, 49, 82, 45, 240, 155, 151, 221, 114, 177
+                ]
+            }
         );
-        assert_eq!(&tx1.value[24..], 10u64.to_be_bytes());
-        assert_eq!(tx1.gas_limit, 50000);
-        assert_eq!(&tx1.gas_price[24..], 10u64.to_be_bytes());
-        assert!(tx1.data.is_empty());
 
         let TransactionEnvelope::DynamicFee(tx2) = transactions_iter.next().unwrap() else {
             panic!("invalid tx");
         };
-        assert_eq!(tx2.chain_id.last().unwrap(), &1);
 
         let chain_id = {
             let mut arr = [0; 32];
@@ -348,25 +484,64 @@ mod tests {
         let Header::Legacy { common } = block.header else {
             panic!("unexpected header kind");
         };
-        assert_eq!(&common.difficulty[24..], &131072u64.to_be_bytes());
-        assert_eq!(common.gas_limit, 3141592);
-        assert_eq!(common.gas_used, 42000);
-        assert_eq!(
-            common.coinbase.to_vec(),
-            hex::decode("8888f1f195afa192cfee860698584c030f4c9db1").unwrap()
-        );
-        assert_eq!(
-            common.mix_digest.to_vec(),
-            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
-                .unwrap()
-        );
-        assert_eq!(
-            common.state_root.to_vec(),
+
+        let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let state_root =
             hex::decode("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017")
                 .unwrap()
+                .try_into()
+                .unwrap();
+        let mix_digest =
+            hex::decode("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let difficulty = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&131072u64.to_be_bytes());
+            arr
+        };
+        let number = {
+            let mut arr = [0; 32];
+            arr[30..].copy_from_slice(&512u16.to_be_bytes());
+            arr
+        };
+
+        assert_eq!(
+            common,
+            CommonHeader {
+                parent_hash: [0; 32],
+                uncle_hash: [
+                    29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
+                    211, 18, 69, 27, 148, 138, 116, 19, 240, 161, 66, 253, 64, 212, 147, 71
+                ],
+                coinbase,
+                state_root,
+                tx_root: [
+                    230, 228, 153, 150, 199, 236, 89, 247, 162, 61, 34, 184, 50, 57, 166, 1, 81,
+                    81, 44, 101, 97, 59, 248, 74, 13, 125, 163, 54, 57, 158, 188, 74
+                ],
+                receipt_hash: [
+                    202, 254, 117, 87, 77, 89, 120, 6, 101, 169, 127, 191, 209, 19, 101, 199, 84,
+                    90, 168, 241, 171, 244, 229, 225, 46, 130, 67, 51, 78, 247, 40, 107
+                ],
+                bloom: [0; 256],
+                difficulty,
+                number,
+                gas_limit: 3141592,
+                gas_used: 42000,
+                time: 1426516743,
+                extra: vec![
+                    99, 111, 111, 108, 101, 115, 116, 32, 98, 108, 111, 99, 107, 32, 111, 110, 32,
+                    99, 104, 97, 105, 110
+                ],
+                mix_digest,
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196]
+            }
         );
-        assert_eq!(common.nonce, 0xa13a5a8c8f2bb1c4u64.to_be_bytes());
-        assert_eq!(common.time, 1426516743);
 
         assert_eq!(block.transactions.len(), 2);
 
@@ -375,15 +550,45 @@ mod tests {
             panic!("invalid tx");
         };
 
-        assert_eq!(tx1.nonce, 0);
+        let gas_price = {
+            let mut arr = [0; 32];
+            arr[31] = 10;
+            arr
+        };
+        let to = {
+            let mut arr = [0; 20];
+            arr.copy_from_slice(&hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87").unwrap());
+            arr
+        };
+        let value = {
+            let mut arr = [0; 32];
+            arr[24..].copy_from_slice(&10u64.to_be_bytes());
+            arr
+        };
+
         assert_eq!(
-            tx1.to.to_vec(),
-            hex::decode("095e7baea6a6c7c4c2dfeb977efac326af552d87").unwrap()
+            tx1,
+            TransactionLegacy {
+                nonce: 0,
+                gas_price,
+                gas_limit: 50000,
+                to,
+                value,
+                data: vec![],
+                v: [
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 27
+                ],
+                r: [
+                    155, 234, 76, 77, 170, 199, 199, 197, 46, 9, 62, 106, 76, 53, 219, 188, 248,
+                    133, 111, 26, 247, 176, 89, 186, 32, 37, 62, 112, 132, 141, 9, 79
+                ],
+                s: [
+                    138, 143, 174, 83, 124, 226, 94, 216, 203, 90, 249, 173, 172, 63, 20, 26, 246,
+                    155, 213, 21, 189, 43, 160, 49, 82, 45, 240, 155, 151, 221, 114, 177
+                ]
+            }
         );
-        assert_eq!(&tx1.value[24..], 10u64.to_be_bytes());
-        assert_eq!(tx1.gas_limit, 50000);
-        assert_eq!(&tx1.gas_price[24..], 10u64.to_be_bytes());
-        assert!(tx1.data.is_empty());
 
         let TransactionEnvelope::AccessList(tx2) = transactions_iter.next().unwrap() else {
             panic!("invalid tx");
