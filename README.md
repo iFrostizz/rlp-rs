@@ -31,7 +31,7 @@ it has been patched to prepend these `0` manually when deserializing to an array
 - [ ] Better serde error handling
 - [ ] Reorder functions around
 - [ ] Better API with nice parsing functions
-- [ ] Benches
+- [ ] Benches, check if we can beat geth and fastrlp https://github.com/umbracle/fastrlp?tab=readme-ov-file#benchmark
 - [ ] Fuzz ser/de for corectness
 - [ ] Provide RLP-ready useful types 
     - [x] Add a crate `types`
