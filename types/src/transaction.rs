@@ -4,10 +4,11 @@ use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sha3::Keccak256;
 
 #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum TransactionEnvelope {
     Legacy(TransactionLegacy),
@@ -111,7 +112,7 @@ impl TransactionEnvelope {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], RlpError> {
-        let mut hasher = Sha256::new();
+        let mut hasher = Keccak256::new();
         let bytes = self.as_bytes()?;
         hasher.update(bytes);
         Ok(hasher.finalize().into())
@@ -136,8 +137,12 @@ impl TransactionEnvelope {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let rlp = unpack_rlp(bytes)?;
-        Self::from_raw_rlp(rlp)
+        let mut rlp = unpack_rlp(bytes)?;
+        let res = Self::from_raw_rlp(&mut rlp)?;
+        match rlp.is_empty() {
+            true => Ok(res),
+            false => Err(RlpError::InvalidLength),
+        }
     }
 
     /// decode an rlp encoded transaction with an expected tx_type
@@ -152,7 +157,7 @@ impl TransactionEnvelope {
         Ok(tx)
     }
 
-    pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
+    pub fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
         // TODO this is only valid if rlp is length of 1
         let tx_type = match rlp.get(0) {
             Some(RecursiveBytes::Nested(_)) => 0,
@@ -163,14 +168,14 @@ impl TransactionEnvelope {
                     _ => return Err(RlpError::InvalidBytes),
                 };
 
-                rlp = unpack_rlp(&bytes[1..])?;
+                *rlp = unpack_rlp(&bytes[1..])?;
 
                 tx_type
             }
             _ => return Err(RlpError::InvalidBytes),
         };
 
-        Self::decode_transaction(&mut rlp, tx_type)
+        Self::decode_transaction(rlp, tx_type)
     }
 
     pub fn legacy() -> Self {
@@ -274,7 +279,8 @@ mod tests {
             .map(|i| &size_bytes[i..])
             .unwrap();
 
-        let mut bytes = vec![0x01]; // tx_type
+        let mut bytes = vec![184, 242]; // tx_type
+        bytes.push(0x01); // tx_type
         bytes.push(0xf7 + size_bytes.len() as u8);
         bytes.extend_from_slice(size_bytes);
         bytes.push(0x80 + 32);
@@ -296,6 +302,7 @@ mod tests {
             bytes.push(0x80 + 32);
             bytes.extend_from_slice(&[1; 32]);
         }
+
         assert_eq!(serialized, bytes);
     }
 
@@ -330,7 +337,8 @@ mod tests {
             .map(|i| &size_bytes[i..])
             .unwrap();
 
-        let mut bytes = vec![0x02];
+        let mut bytes = vec![185, 1, 20];
+        bytes.push(0x02);
         bytes.push(0xf7 + size_bytes.len() as u8);
         bytes.extend_from_slice(size_bytes);
         bytes.push(0x80 + 32);
@@ -355,7 +363,9 @@ mod tests {
         }
         assert_eq!(serialized, bytes);
 
-        serialized.remove(0); // remove tx_type
+        for _ in 0..4 {
+            serialized.remove(0); // remove len prefix & tx_type
+        }
 
         let deserialized: TransactionDynamicFee = from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);

@@ -39,6 +39,12 @@ impl Serializer {
 
     /// pushes bytes to the most nested list we are in or at the highest level.
     fn push_bytes(&mut self, bytes: Vec<u8>) {
+        let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
+            bytes[index..].to_vec()
+        } else {
+            vec![]
+        };
+
         let bytes = RefRecursiveBytes::Data(bytes);
 
         if let Some(top) = self.stack.last_mut() {
@@ -108,12 +114,6 @@ impl Serializer {
     }
 
     fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), RlpError> {
-        let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
-            &bytes[index..]
-        } else {
-            &[0]
-        };
-
         ser::Serializer::serialize_bytes(self, bytes)
     }
 }
@@ -589,15 +589,15 @@ mod tests {
 
     #[test]
     fn ser_struct_tuple_bytes() {
-        let tuple = Tuple([0; 10], [0; 20], [0; 30]);
+        let tuple = Tuple([1; 10], [1; 20], [1; 30]);
 
         let rlp = to_rlp(&tuple).unwrap();
         assert_eq!(
             rlp.0,
             vec![RecursiveBytes::Nested(vec![
-                RecursiveBytes::Bytes(vec![0; 10]),
-                RecursiveBytes::Bytes(vec![0; 20]),
-                RecursiveBytes::Bytes(vec![0; 30])
+                RecursiveBytes::Bytes(vec![1; 10]),
+                RecursiveBytes::Bytes(vec![1; 20]),
+                RecursiveBytes::Bytes(vec![1; 30])
             ])]
         );
     }

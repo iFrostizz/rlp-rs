@@ -25,3 +25,10 @@ path = "fuzz_targets/tx_hash.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tx_deser"
+path = "fuzz_targets/tx_deser.rs"
+test = false
+doc = false
+bench = false

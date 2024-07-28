@@ -58,12 +58,11 @@ impl Rlp {
 
     fn need_bytes_len<const S: usize>(&mut self) -> Result<[u8; S], RlpError> {
         let mut bytes = self.need_bytes()?;
-        // if bytes.len() != S {
         if bytes.len() > S {
             return Err(RlpError::InvalidLength);
         }
         for _ in 0..(S - bytes.len()) {
-            bytes.insert(0, 0);
+            bytes.insert(0, 0); // TODO kinda crap performance wise
         }
         Ok(bytes.try_into().unwrap())
     }
@@ -107,29 +106,26 @@ impl Rlp {
 
 struct Seq {
     de: Vec<Rlp>,
-    index: usize,
 }
 
 impl Seq {
     fn new(de: Vec<Rlp>) -> Self {
-        Seq { de, index: 0 }
+        Seq { de }
     }
 }
 
-impl<'de> SeqAccess<'de> for Seq {
+impl<'de> SeqAccess<'de> for &mut Seq {
     type Error = RlpError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if let Some(rlp) = self.de.get_mut(self.index) {
-            let rec = rlp.need_next()?;
-            self.index += 1;
-            let rlp = &mut Rlp(vec![rec].into());
-            seed.deserialize(rlp).map(Some)
-        } else {
+        if self.de.is_empty() {
             Ok(None)
+        } else {
+            let rlp = &mut self.de.remove(0); // TODO maybe this is enough to switch to VecDeque everywhere ?
+            seed.deserialize(rlp).map(Some)
         }
     }
 }
@@ -358,8 +354,13 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
         V: serde::de::Visitor<'de>,
     {
         let recs = self.need_nested()?;
-        let rlps: Vec<Rlp> = recs.into_iter().map(|rec| Rlp(vec![rec].into())).collect();
-        visitor.visit_seq(Seq::new(rlps))
+        let rlps: Vec<Rlp> = recs.into_iter().map(|rec| Rlp(vec![rec].into())).collect(); // TODO don't allocate
+        let mut seq = Seq::new(rlps);
+        let res = visitor.visit_seq(&mut seq)?;
+        match seq.de.is_empty() {
+            true => Ok(res),
+            false => Err(RlpError::InvalidLength),
+        }
     }
 
     fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>

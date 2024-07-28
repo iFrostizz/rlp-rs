@@ -64,7 +64,7 @@ impl RecursiveBytes {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Rlp(VecDeque<RecursiveBytes>);
 
 impl IntoIterator for Rlp {
@@ -103,9 +103,12 @@ impl Rlp {
         Rlp(vec![inner].into())
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn get(&self, index: usize) -> Option<&RecursiveBytes> {
@@ -145,6 +148,10 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
     let mut unpacked = Vec::new();
 
     let ret = if disc <= 0x7f {
+        if disc == 0x00 {
+            return Err(RlpError::TrailingBytes);
+        }
+
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
         RecursiveBytes::Bytes(ret.to_vec())
@@ -153,6 +160,9 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         let ret = bytes
             .get(cursor..(cursor + len as usize))
             .ok_or(RlpError::MissingBytes)?;
+        if len != 0 && ret[0] == 0x00 {
+            return Err(RlpError::TrailingBytes);
+        }
         cursor += len as usize;
 
         RecursiveBytes::Bytes(ret.to_vec())
@@ -169,8 +179,9 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
 
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
+        let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?;
         let ret = bytes
-            .get(cursor..(cursor + len))
+            .get(cursor..max_cursor)
             .ok_or(RlpError::MissingBytes)?;
         cursor += len;
 
@@ -193,8 +204,9 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         cursor += len_bytes_len as usize;
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
+        let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?; // TODO wrong error
         let list_bytes = bytes
-            .get(cursor..(cursor + len))
+            .get(cursor..max_cursor)
             .ok_or(RlpError::MissingBytes)?;
         cursor += len;
 
@@ -290,7 +302,7 @@ pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples
 #[cfg(test)]
 mod tests {
-    use super::{unpack_rlp, RecursiveBytes};
+    use super::*;
 
     #[test]
     fn unpack_dog() {
@@ -403,5 +415,20 @@ mod tests {
                 b'i', b'p', b'i', b's', b'i', b'c', b'i', b'n', b'g', b' ', b'e', b'l', b'i', b't',
             ])]
         );
+    }
+
+    #[test]
+    fn trailing_bytes() {
+        let tests = [
+            &[201, 59, 59, 59, 59, 0, 0, 128, 59, 59][..],
+            &[205, 128, 59, 128, 59, 132, 0, 59, 59, 201, 128, 59, 59, 128][..],
+        ];
+
+        for bytes in tests {
+            assert!(matches!(
+                unpack_rlp(bytes).unwrap_err(),
+                RlpError::TrailingBytes
+            ));
+        }
     }
 }

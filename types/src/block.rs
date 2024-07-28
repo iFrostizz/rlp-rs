@@ -13,6 +13,18 @@ pub struct Block {
 }
 
 impl Block {
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn transactions(&self) -> &[TransactionEnvelope] {
+        &self.transactions
+    }
+
+    pub fn uncles(&self) -> &[Header] {
+        &self.uncles
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
@@ -32,7 +44,7 @@ impl Block {
             .into_iter();
 
         let transactions = transaction_iter
-            .map(TransactionEnvelope::from_raw_rlp)
+            .map(|mut rlp: rlp_rs::Rlp| TransactionEnvelope::from_raw_rlp(&mut rlp))
             .collect::<Result<_, RlpError>>()?;
 
         let uncles_rlp = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
@@ -276,6 +288,12 @@ mod tests {
 
         assert_eq!(block.transactions.len(), 1);
         let transaction = block.transactions.first().unwrap();
+        let hash: [u8; 32] =
+            hex::decode("77b19baa4de67e45a7b26e4a220bccdbb6731885aa9927064e239ca232023215")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        assert_eq!(transaction.hash().unwrap(), hash);
         let TransactionEnvelope::Legacy(transaction) = transaction else {
             panic!("not a legacy transaction");
         };
