@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct Block {
     header: Header,
     transactions: Vec<TransactionEnvelope>,

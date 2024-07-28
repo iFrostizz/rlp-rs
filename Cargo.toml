@@ -1,5 +1,5 @@
 [workspace]
-members = ["rlp", "types"]
+members = ["rlp", "types", "fuzz"]
 default_member = "rlp"
 resolver = "2"
 
@@ -7,3 +7,4 @@ resolver = "2"
 rlp-rs = { path = "./rlp" }
 serde_bytes = { git = "https://github.com/iFrostizz/bytes" }
 serde = { version = "1.0.204", features = ["derive"] }
+libfuzzer-sys = "0.4"

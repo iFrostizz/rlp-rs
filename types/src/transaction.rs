@@ -1,9 +1,11 @@
 use crate::primitives::{Address, SerdeU256, U256};
-use rlp_rs::{from_bytes, unpack_rlp, RecursiveBytes, Rlp, RlpError};
-use serde::ser::SerializeTuple;
+#[cfg(feature = "fuzzing")]
+use libfuzzer_sys::arbitrary::{self, Arbitrary};
+use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TransactionEnvelope {
@@ -13,31 +15,8 @@ pub enum TransactionEnvelope {
     // TODO Blob transaction
 }
 
-// a transaction envelope is not really RLP but here we go ...
-impl Serialize for TransactionEnvelope {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            TransactionEnvelope::Legacy(legacy) => legacy.serialize(serializer),
-            TransactionEnvelope::AccessList(access_list) => {
-                let mut serializer = serializer.serialize_tuple(2)?;
-                serializer.serialize_element(&self.tx_type())?;
-                serializer.serialize_element(access_list)?;
-                serializer.end()
-            }
-            TransactionEnvelope::DynamicFee(dynamic_fee) => {
-                let mut serializer = serializer.serialize_tuple(2)?;
-                serializer.serialize_element(&self.tx_type())?;
-                serializer.serialize_element(dynamic_fee)?;
-                serializer.end()
-            }
-        }
-    }
-}
-
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionLegacy {
     pub nonce: u64,
@@ -58,7 +37,8 @@ pub struct TransactionLegacy {
     pub s: U256,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionAccessList {
     #[serde(with = "serde_bytes")]
@@ -82,7 +62,8 @@ pub struct TransactionAccessList {
     pub s: U256,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionDynamicFee {
     #[serde(with = "serde_bytes")]
@@ -108,7 +89,8 @@ pub struct TransactionDynamicFee {
     pub s: U256,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccessList {
     #[serde(with = "serde_bytes")]
@@ -128,26 +110,26 @@ impl TransactionEnvelope {
     }
 
     pub fn as_bytes(&self) -> Result<Vec<u8>, RlpError> {
-        let tx_type = self.tx_type();
-        let mut bytes = if tx_type > 0 { vec![tx_type] } else { vec![] };
-        let tx_rlp = &mut match self {
+        match self {
             TransactionEnvelope::Legacy(tx) => rlp_rs::to_bytes(tx),
-            TransactionEnvelope::AccessList(tx) => rlp_rs::to_bytes(tx),
-            TransactionEnvelope::DynamicFee(tx) => rlp_rs::to_bytes(tx),
-        }?;
-        bytes.append(tx_rlp);
-        Ok(bytes)
+            TransactionEnvelope::AccessList(tx) => {
+                let mut bytes = vec![self.tx_type()];
+                bytes.append(&mut rlp_rs::to_bytes(tx)?);
+                let rlp = RecursiveBytes::Bytes(bytes).into_rlp();
+                pack_rlp(rlp)
+            }
+            TransactionEnvelope::DynamicFee(tx) => {
+                let mut bytes = vec![self.tx_type()];
+                bytes.append(&mut rlp_rs::to_bytes(tx)?);
+                let rlp = RecursiveBytes::Bytes(bytes).into_rlp();
+                pack_rlp(rlp)
+            }
+        }
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let disc = bytes.first().ok_or(RlpError::MissingBytes)?;
-        let tx = match disc {
-            1 => TransactionEnvelope::AccessList(from_bytes(&bytes[1..])?),
-            2 => TransactionEnvelope::DynamicFee(from_bytes(&bytes[1..])?),
-            rest if *rest >= 0xf8 => TransactionEnvelope::Legacy(from_bytes(bytes)?),
-            _ => return Err(RlpError::InvalidBytes),
-        };
-        Ok(tx)
+        let rlp = unpack_rlp(bytes)?;
+        Self::from_raw_rlp(rlp)
     }
 
     /// decode an rlp encoded transaction with an expected tx_type
@@ -163,6 +145,7 @@ impl TransactionEnvelope {
     }
 
     pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
+        // TODO this is only valid if rlp is length of 1
         let tx_type = match rlp.get(0) {
             Some(RecursiveBytes::Nested(_)) => 0,
             Some(RecursiveBytes::Bytes(bytes)) => {

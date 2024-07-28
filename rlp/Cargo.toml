@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 paste = "1.0.15"
-serde = { version = "1.0.204", features = ["derive"] }
+serde = { workspace = true }
 serde_bytes = { workspace = true }
 
 [dev-dependencies]

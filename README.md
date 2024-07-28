@@ -32,6 +32,7 @@ it has been patched to prepend these `0` manually when deserializing to an array
 - [ ] Reorder functions around
 - [ ] Better API with nice parsing functions
 - [ ] Benches
+- [ ] Fuzz ser/de for corectness
 - [ ] Provide RLP-ready useful types 
     - [x] Add a crate `types`
     - [x] `Transaction`
