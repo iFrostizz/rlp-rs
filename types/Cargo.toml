@@ -8,6 +8,7 @@ serde = { workspace = true }
 serde_bytes = { workspace = true }
 rlp-rs = { workspace = true }
 libfuzzer-sys = { workspace = true, features = ["arbitrary-derive"], optional = true }
+sha2 = "0.10.8"
 
 [dev-dependencies]
 hex = "0.4.3"

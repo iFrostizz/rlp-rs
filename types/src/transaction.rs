@@ -3,6 +3,7 @@ use crate::primitives::{Address, SerdeU256, U256};
 use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
@@ -107,6 +108,13 @@ impl TransactionEnvelope {
             TransactionEnvelope::AccessList { .. } => 1,
             TransactionEnvelope::DynamicFee { .. } => 2,
         }
+    }
+
+    pub fn hash(&self) -> Result<[u8; 32], RlpError> {
+        let mut hasher = Sha256::new();
+        let bytes = self.as_bytes()?;
+        hasher.update(bytes);
+        Ok(hasher.finalize().into())
     }
 
     pub fn as_bytes(&self) -> Result<Vec<u8>, RlpError> {

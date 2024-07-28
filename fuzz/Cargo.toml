@@ -13,8 +13,15 @@ rlp-rs = { path = "../rlp" }
 rlp-types = { path = "../types", features = ["fuzzing", "test-utils"] }
 
 [[bin]]
-name = "transaction_serde"
-path = "fuzz_targets/transaction_serde.rs"
+name = "tx_serde"
+path = "fuzz_targets/tx_serde.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_hash"
+path = "fuzz_targets/tx_hash.rs"
 test = false
 doc = false
 bench = false
