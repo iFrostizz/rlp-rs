@@ -148,10 +148,6 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
     let mut unpacked = Vec::new();
 
     let ret = if disc <= 0x7f {
-        if disc == 0x00 {
-            return Err(RlpError::TrailingBytes);
-        }
-
         let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
         RecursiveBytes::Bytes(ret.to_vec())
@@ -161,9 +157,7 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
             .get(cursor..(cursor + len as usize))
             .ok_or(RlpError::MissingBytes)?;
 
-        if len != 0 && ret[0] == 0x00 {
-            return Err(RlpError::TrailingBytes);
-        } else if len >= 1 && ret[0] <= 127 {
+        if len == 1 && ret[0] <= 127 {
             return Err(RlpError::InvalidBytes);
         }
 
@@ -440,17 +434,17 @@ mod tests {
 
     #[test]
     fn trailing_bytes() {
-        let tests = [
-            &[201, 59, 59, 59, 59, 0, 0, 128, 59, 59][..],
-            &[205, 128, 59, 128, 59, 132, 0, 59, 59, 201, 128, 59, 59, 128][..],
-            &[93, 61, 73, 95, 61, 61, 248, 0][..],
-        ];
+        let tests = [&[93, 61, 73, 95, 61, 61, 248, 0][..]];
 
-        for bytes in tests {
+        for (i, bytes) in tests.into_iter().enumerate() {
+            println!("{i}...");
+
             assert!(matches!(
                 unpack_rlp(bytes).unwrap_err(),
                 RlpError::TrailingBytes
             ));
+
+            println!("ok");
         }
     }
 
@@ -463,11 +457,57 @@ mod tests {
             77, 77, 77, 77, 77, 192, 128, 59, 195, 192, 91, 5, 192, 91, 59, 59, 5][..],
         ];
 
-        for bytes in tests {
+        for (i, bytes) in tests.into_iter().enumerate() {
+            println!("{i}...");
+
             assert!(matches!(
                 unpack_rlp(bytes).unwrap_err(),
                 RlpError::InvalidLength
             ));
+
+            println!("ok");
         }
+    }
+
+    #[test]
+    fn nested_empty_array() {
+        let bytes = [201, 59, 59, 59, 59, 0, 0, 128, 59, 59];
+        let rlp = unpack_rlp(&bytes).unwrap();
+
+        assert_eq!(
+            rlp.0,
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![0]),
+                RecursiveBytes::Bytes(vec![0]),
+                RecursiveBytes::Bytes(vec![]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![59]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn array_with_trailing() {
+        let bytes = [205, 128, 59, 128, 59, 132, 0, 59, 59, 201, 128, 59, 59, 128];
+        let rlp = unpack_rlp(&bytes).unwrap();
+
+        assert_eq!(
+            rlp.0,
+            vec![RecursiveBytes::Nested(vec![
+                RecursiveBytes::Bytes(vec![]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![0, 59, 59, 201]),
+                RecursiveBytes::Bytes(vec![]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![59]),
+                RecursiveBytes::Bytes(vec![]),
+            ])]
+        );
     }
 }

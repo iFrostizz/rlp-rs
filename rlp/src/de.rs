@@ -481,7 +481,7 @@ mod tests {
             Err(RlpError::MissingBytes)
         ));
 
-        let num: u32 = from_bytes(&[0x84, 0, 0, 0, 23]).unwrap();
+        let num: u32 = from_bytes(&[23]).unwrap();
         assert_eq!(num, 23);
     }
 
