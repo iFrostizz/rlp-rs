@@ -246,7 +246,8 @@ mod tests {
             bytes.push(0x80 + 32);
             bytes.extend_from_slice(&[1; 32]);
         }
-        assert_eq!(serialized, bytes);
+
+        assert_eq!(bytes, serialized);
     }
 
     #[test]
@@ -369,5 +370,21 @@ mod tests {
 
         let deserialized: TransactionDynamicFee = from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);
+    }
+
+    #[test]
+    fn unpack_tx_trailing_bytes() {
+        let tests = [
+            &[201, 69, 59, 59, 59, 0, 59, 59, 59, 10][..],
+            &[205, 128, 59, 130, 59, 59, 59, 128, 55, 59, 59, 130, 0, 0][..],
+            &[205, 128, 59, 59, 59, 59, 130, 0, 55, 59, 59, 130, 59, 0][..],
+        ];
+
+        for (i, bytes) in tests.iter().enumerate() {
+            println!("{i}....");
+            let err = TransactionEnvelope::from_bytes(bytes).unwrap_err();
+            assert!(matches!(err, RlpError::TrailingBytes));
+            println!("ok");
+        }
     }
 }

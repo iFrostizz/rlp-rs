@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt::{self, Display};
+use std::task::Wake;
 
 mod de;
 pub use de::from_bytes;
@@ -50,6 +51,7 @@ impl std::error::Error for RlpError {}
 #[derive(Debug, Clone)]
 pub enum RecursiveBytes {
     Bytes(Vec<u8>),
+    ZeroFixed,
     Nested(Vec<RecursiveBytes>),
 }
 
@@ -290,7 +292,10 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
 
 fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, RlpError> {
     match rec {
-        RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
+        RecursiveBytes::Bytes(bytes) => {
+            append_rlp_bytes(pack, if bytes.is_empty() { vec![] } else { bytes })
+        }
+        RecursiveBytes::ZeroFixed => append_rlp_bytes(pack, vec![]),
         RecursiveBytes::Nested(recs) => {
             let mut len = 0;
             let inner_pack = &mut Vec::new();
@@ -317,6 +322,8 @@ pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::*;
 
     #[test]
@@ -433,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn trailing_bytes() {
+    fn trailing_bytes_unpack() {
         let tests = [&[93, 61, 73, 95, 61, 61, 248, 0][..]];
 
         for (i, bytes) in tests.into_iter().enumerate() {
@@ -509,5 +516,72 @@ mod tests {
                 RecursiveBytes::Bytes(vec![]),
             ])]
         );
+    }
+
+    #[test]
+    fn pack_unpack() {
+        let tests = [
+            (
+                &[201, 69, 59, 59, 59, 0, 59, 59, 59, 10][..],
+                vec![RecursiveBytes::Nested(vec![
+                    RecursiveBytes::Bytes(vec![69]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![0]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![10]),
+                ])],
+            ),
+            (
+                &[201, 128, 59, 59, 59, 59, 59, 59, 59, 59][..],
+                vec![RecursiveBytes::Nested(vec![
+                    RecursiveBytes::Bytes(vec![]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                    RecursiveBytes::Bytes(vec![59]),
+                ])],
+            ),
+        ];
+
+        for (i, (bytes, rlp)) in tests.into_iter().enumerate() {
+            println!("{i}...");
+
+            let unpacked = unpack_rlp(bytes).unwrap();
+
+            assert_eq!(unpacked.0, rlp);
+
+            let packed = pack_rlp(unpacked).unwrap();
+
+            assert_eq!(bytes, packed.as_slice());
+
+            println!("ok");
+        }
+    }
+
+    #[test]
+    fn trailing_bytes_deserialize() {
+        #[derive(Debug, Deserialize)]
+        struct MyType([u8; 9]);
+
+        let tests = [&[201, 69, 59, 59, 59, 0, 59, 59, 59, 10][..]];
+
+        for (i, bytes) in tests.into_iter().enumerate() {
+            println!("{i}...");
+
+            let rlp = &mut unpack_rlp(bytes).unwrap();
+
+            assert!(matches!(
+                MyType::deserialize(rlp).unwrap_err(),
+                RlpError::TrailingBytes
+            ));
+        }
     }
 }

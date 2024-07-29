@@ -1,13 +1,14 @@
 use crate::{pack_rlp, RecursiveBytes, Rlp, RlpError};
 use paste::paste;
 use serde::{ser, Serialize};
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 
 #[derive(Debug)]
 enum RefRecursiveBytes {
     Data(Vec<u8>),
+    ZeroFixed,
     Nested(Rc<RefCell<Vec<RefRecursiveBytes>>>),
 }
 
@@ -38,14 +39,15 @@ impl Serializer {
     }
 
     /// pushes bytes to the most nested list we are in or at the highest level.
-    fn push_bytes(&mut self, bytes: Vec<u8>) {
+    fn push_bytes(&mut self, bytes: &[u8], fixed: bool) {
         let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
-            bytes[index..].to_vec()
+            RefRecursiveBytes::Data(bytes[index..].to_vec())
+        } else if fixed {
+            RefRecursiveBytes::ZeroFixed
         } else {
-            vec![]
+            // RefRecursiveBytes::Data(vec![0x00])
+            RefRecursiveBytes::Data(vec![])
         };
-
-        let bytes = RefRecursiveBytes::Data(bytes);
 
         if let Some(top) = self.stack.last_mut() {
             top.borrow_mut().push(bytes);
@@ -57,6 +59,7 @@ impl Serializer {
     fn recursive_into_recursive_bytes(rec: RefRecursiveBytes) -> RecursiveBytes {
         match rec {
             RefRecursiveBytes::Data(bytes) => RecursiveBytes::Bytes(bytes),
+            RefRecursiveBytes::ZeroFixed => RecursiveBytes::ZeroFixed,
             RefRecursiveBytes::Nested(list) => {
                 let list = Rc::try_unwrap(list).unwrap().into_inner();
                 let rec_list = list
@@ -110,11 +113,8 @@ macro_rules! impl_int {
 
 impl Serializer {
     fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), RlpError> {
-        self.serialize_slice(&bytes)
-    }
-
-    fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), RlpError> {
-        ser::Serializer::serialize_bytes(self, bytes)
+        self.push_bytes(&bytes, true);
+        Ok(())
     }
 }
 
@@ -162,7 +162,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        self.push_bytes(v.to_vec());
+        self.push_bytes(v, false);
         Ok(())
     }
 
@@ -605,6 +605,19 @@ mod tests {
     #[test]
     fn ser_empty_vec() {
         #[derive(Debug, Serialize)]
+        struct MyVec(Vec<u8>);
+        let vec = MyVec(vec![]);
+
+        let rlp = to_rlp(&vec).unwrap();
+        assert_eq!(rlp.0, vec![RecursiveBytes::Nested(vec![])]);
+
+        let serialized = to_bytes(&vec).unwrap();
+        assert_eq!(serialized, vec![0xc0]);
+    }
+
+    #[test]
+    fn ser_empty_bytes() {
+        #[derive(Debug, Serialize)]
         struct MyVec(#[serde(with = "serde_bytes")] Vec<u8>);
         let vec = MyVec(vec![]);
 
@@ -616,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn ser_enum_empty_struct() {
+    fn ser_enum_empty_struct_bytes() {
         #[derive(Debug, Serialize)]
         enum MyEnum {
             Variant1 {
@@ -635,5 +648,14 @@ mod tests {
                 RecursiveBytes::Bytes(vec![])
             ]
         );
+    }
+
+    #[test]
+    fn ser_trailing_bytes_u64() {
+        let num: u64 = 0;
+        let rlp = to_rlp(&num).unwrap();
+        assert_eq!(rlp.0, vec![RecursiveBytes::ZeroFixed]);
+        let bytes = to_bytes(&num).unwrap();
+        assert_eq!(bytes, vec![0x80]);
     }
 }
