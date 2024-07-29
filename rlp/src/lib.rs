@@ -160,16 +160,21 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         let ret = bytes
             .get(cursor..(cursor + len as usize))
             .ok_or(RlpError::MissingBytes)?;
+
         if len != 0 && ret[0] == 0x00 {
             return Err(RlpError::TrailingBytes);
+        } else if len >= 1 && ret[0] <= 127 {
+            return Err(RlpError::InvalidBytes);
         }
+
         cursor += len as usize;
 
         RecursiveBytes::Bytes(ret.to_vec())
     } else if disc <= 0xbf {
         let len_bytes_len = disc - 0xb7;
         if len_bytes_len > 8 {
-            unimplemented!("we do not support > 2**64 bytes long strings");
+            // unimplemented!("we do not support > 2**64 bytes long strings");
+            return Err(RlpError::InvalidLength);
         }
         let mut len_bytes_base = [0; 8];
         let len_bytes = bytes
@@ -179,6 +184,9 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
 
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
         let len = usize::from_be_bytes(len_bytes_base);
+        if len <= 55 {
+            return Err(RlpError::InvalidLength);
+        }
         let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?;
         let ret = bytes
             .get(cursor..max_cursor)
@@ -201,9 +209,19 @@ fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
         let len_bytes = bytes
             .get(cursor..(cursor + len_bytes_len as usize))
             .ok_or(RlpError::MissingBytes)?;
+
+        if len_bytes[0] == 0 {
+            return Err(RlpError::TrailingBytes);
+        }
+
         cursor += len_bytes_len as usize;
         len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
+
         let len = usize::from_be_bytes(len_bytes_base);
+        if len < 55 {
+            return Err(RlpError::InvalidLength);
+        }
+
         let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?; // TODO wrong error
         let list_bytes = bytes
             .get(cursor..max_cursor)
@@ -235,6 +253,9 @@ fn append_rlp_bytes(pack: &mut Vec<u8>, new_bytes: Vec<u8>) -> Result<usize, Rlp
         1 if new_bytes[0] <= 127 => new_bytes,
         len => {
             if len <= 55 {
+                if len == 1 && new_bytes[0] <= 127 {
+                    return Err(RlpError::InvalidBytes);
+                }
                 let disc = 0x80 + len as u8;
                 let mut bytes = vec![disc];
                 bytes.extend_from_slice(&new_bytes);
@@ -422,12 +443,30 @@ mod tests {
         let tests = [
             &[201, 59, 59, 59, 59, 0, 0, 128, 59, 59][..],
             &[205, 128, 59, 128, 59, 132, 0, 59, 59, 201, 128, 59, 59, 128][..],
+            &[93, 61, 73, 95, 61, 61, 248, 0][..],
         ];
 
         for bytes in tests {
             assert!(matches!(
                 unpack_rlp(bytes).unwrap_err(),
                 RlpError::TrailingBytes
+            ));
+        }
+    }
+
+    #[test]
+    fn too_short() {
+        #[rustfmt::skip]
+        let tests = [
+            &[5, 248, 5, 5, 29, 38, 5, 5, 128, 128, 5, 73, 128, 128, 5, 44, 73][..],
+            &[192, 192, 192, 192, 192, 184, 5, 59, 59, 59, 59, 93, 77, 77, 77, 
+            77, 77, 77, 77, 77, 192, 128, 59, 195, 192, 91, 5, 192, 91, 59, 59, 5][..],
+        ];
+
+        for bytes in tests {
+            assert!(matches!(
+                unpack_rlp(bytes).unwrap_err(),
+                RlpError::InvalidLength
             ));
         }
     }

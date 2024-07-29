@@ -32,3 +32,10 @@ path = "fuzz_targets/tx_deser.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "pack_rlp"
+path = "fuzz_targets/pack_rlp.rs"
+test = false
+doc = false
+bench = false

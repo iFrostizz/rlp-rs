@@ -9,6 +9,6 @@ fuzz_target!(|tx_bytes: Vec<u8>| -> Corpus {
         Err(_) => return Corpus::Reject,
     };
     let serialized = tx.as_bytes().unwrap();
-    assert_eq!(serialized, tx_bytes);
+    assert_eq!(tx_bytes, serialized);
     Corpus::Keep
 });
