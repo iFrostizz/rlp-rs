@@ -3,8 +3,7 @@ use crate::primitives::{Address, SerdeU256, U256};
 use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use sha3::Keccak256;
+use sha3::{Digest, Keccak256};
 
 #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
@@ -246,7 +245,8 @@ mod tests {
             bytes.push(0x80 + 32);
             bytes.extend_from_slice(&[1; 32]);
         }
-        assert_eq!(serialized, bytes);
+
+        assert_eq!(bytes, serialized);
     }
 
     #[test]

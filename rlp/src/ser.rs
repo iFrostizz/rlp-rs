@@ -605,6 +605,19 @@ mod tests {
     #[test]
     fn ser_empty_vec() {
         #[derive(Debug, Serialize)]
+        struct MyVec(Vec<u8>);
+        let vec = MyVec(vec![]);
+
+        let rlp = to_rlp(&vec).unwrap();
+        assert_eq!(rlp.0, vec![RecursiveBytes::Nested(vec![])]);
+
+        let serialized = to_bytes(&vec).unwrap();
+        assert_eq!(serialized, vec![0xc0]);
+    }
+
+    #[test]
+    fn ser_empty_bytes() {
+        #[derive(Debug, Serialize)]
         struct MyVec(#[serde(with = "serde_bytes")] Vec<u8>);
         let vec = MyVec(vec![]);
 
@@ -616,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn ser_enum_empty_struct() {
+    fn ser_enum_empty_struct_bytes() {
         #[derive(Debug, Serialize)]
         enum MyEnum {
             Variant1 {
@@ -635,5 +648,12 @@ mod tests {
                 RecursiveBytes::Bytes(vec![])
             ]
         );
+    }
+
+    #[test]
+    fn ser_trailing_bytes_u64() {
+        let num: u64 = 0;
+        let bytes = to_bytes(&num).unwrap();
+        assert_eq!(bytes, vec![0x80]);
     }
 }

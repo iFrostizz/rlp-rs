@@ -211,6 +211,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
         visitor.visit_bool(self.parse_bool()?)
     }
 
+    // TODO macro for all of these
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
