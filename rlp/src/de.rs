@@ -7,7 +7,7 @@ macro_rules! parse_int {
     ($ty:ty) => {
         paste! {
             fn [<parse_ $ty>](&mut self) -> Result<[<$ty>], RlpError> {
-                let bytes = self.need_bytes_len::<{std::mem::size_of::<$ty>()}>()?;
+                let bytes = self.need_bytes_len::<{std::mem::size_of::<$ty>()}>(true)?;
                 Ok([<$ty>]::from_be_bytes(bytes))
             }
         }
@@ -56,10 +56,16 @@ impl Rlp {
         self.0.pop_front().ok_or(RlpError::MissingBytes)
     }
 
-    fn need_bytes_len<const S: usize>(&mut self) -> Result<[u8; S], RlpError> {
+    fn need_bytes_len<const S: usize>(
+        &mut self,
+        check_trailing: bool,
+    ) -> Result<[u8; S], RlpError> {
         let mut bytes = self.need_bytes()?;
         if bytes.len() > S {
             return Err(RlpError::InvalidLength);
+        }
+        if check_trailing && bytes.first().is_some_and(|b| b == &0x00) {
+            return Err(RlpError::TrailingBytes);
         }
         for _ in 0..(S - bytes.len()) {
             bytes.insert(0, 0); // TODO kinda crap performance wise
@@ -68,7 +74,7 @@ impl Rlp {
     }
 
     fn parse_bool(&mut self) -> Result<bool, RlpError> {
-        let bytes = self.need_bytes_len::<1>()?;
+        let bytes = self.need_bytes_len::<1>(false)?;
         let byte = bytes[0];
         let bool_val = match byte {
             0 => false,
@@ -89,7 +95,7 @@ impl Rlp {
     parse_int!(u64);
 
     fn parse_char(&mut self) -> Result<char, RlpError> {
-        let bytes = self.need_bytes_len::<1>()?;
+        let bytes = self.need_bytes_len::<1>(false)?;
         let byte = bytes[0];
         Ok(byte.into())
     }
@@ -323,7 +329,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     where
         V: serde::de::Visitor<'de>,
     {
-        self.need_bytes_len::<0>()?;
+        self.need_bytes_len::<0>(false)?;
         visitor.visit_unit()
     }
 
@@ -463,7 +469,7 @@ mod tests {
         let num: i8 = from_bytes(&[127]).unwrap();
         assert_eq!(num, 127);
 
-        let num: i8 = from_bytes(&[0]).unwrap();
+        let num: i8 = from_bytes(&[0x80]).unwrap();
         assert_eq!(num, 0);
 
         let num: i8 = from_bytes(&[0x81, 255]).unwrap();
@@ -574,7 +580,7 @@ mod tests {
             Kebab = 2,
         }
 
-        assert_eq!(from_bytes::<Food>(&[0x00]).unwrap(), Food::Pizza);
+        assert_eq!(from_bytes::<Food>(&[0x80]).unwrap(), Food::Pizza);
         assert_eq!(from_bytes::<Food>(&[0x01]).unwrap(), Food::Ramen);
         assert_eq!(from_bytes::<Food>(&[0x02]).unwrap(), Food::Kebab);
         assert!(from_bytes::<Food>(&[0x03]).is_err());
@@ -671,5 +677,23 @@ mod tests {
             from_bytes::<Message>(&message).unwrap(),
             Message::ChangeColor(-1, -212412, 2147483647)
         );
+    }
+
+    #[test]
+    fn positive_integer_leading_zeros() {
+        assert!(matches!(
+            from_bytes::<u64>(&[0x83, 0x00, 0x00, 0x01]),
+            Err(RlpError::TrailingBytes)
+        ));
+
+        assert!(matches!(
+            from_bytes::<u8>(&[0x00]),
+            Err(RlpError::TrailingBytes)
+        ));
+
+        assert!(matches!(
+            from_bytes::<u16>(&[0x82, 0x00, 0xff]),
+            Err(RlpError::TrailingBytes)
+        ));
     }
 }
