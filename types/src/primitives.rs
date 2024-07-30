@@ -34,11 +34,21 @@ macro_rules! vec_type {
             }
         }
 
-        impl TryInto<[u8; $size]> for $name {
-            type Error = ();
+        #[allow(clippy::from_over_into)]
+        impl Into<[u8; $size]> for $name {
+            fn into(mut self) -> [u8; $size] {
+                if self.0.len() > $size {
+                    unreachable!();
+                }
 
-            fn try_into(self) -> Result<[u8; $size], Self::Error> {
-                todo!()
+                let bytes = if self.0.len() != $size {
+                    let mut bytes = vec![0; $size - self.0.len()];
+                    bytes.append(&mut self.0);
+                    bytes
+                } else {
+                    self.0
+                };
+                bytes.try_into().unwrap()
             }
         }
 

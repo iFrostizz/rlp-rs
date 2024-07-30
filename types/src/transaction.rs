@@ -90,7 +90,15 @@ impl TransactionEnvelope {
 
     pub fn hash(&self) -> Result<[u8; 32], RlpError> {
         let mut hasher = Keccak256::new();
-        let bytes = self.as_bytes()?;
+        let tx_type = self.tx_type();
+        if tx_type > 0 {
+            hasher.update([tx_type]);
+        }
+        let bytes = match self {
+            TransactionEnvelope::Legacy(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::AccessList(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::DynamicFee(tx) => rlp_rs::to_bytes(tx),
+        }?;
         hasher.update(bytes);
         Ok(hasher.finalize().into())
     }
@@ -134,7 +142,8 @@ impl TransactionEnvelope {
         Ok(tx)
     }
 
-    pub fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
+    /// careful, this function does not perform any suffix data check
+    pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
         // TODO this is only valid if rlp is length of 1
         let tx_type = match rlp.get(0) {
             Some(RecursiveBytes::Nested(_)) => 0,
@@ -144,6 +153,11 @@ impl TransactionEnvelope {
                     2 => 2,
                     _ => return Err(RlpError::InvalidBytes),
                 };
+
+                // necessary to do it because we just unwrapped the nested structure
+                if rlp.get(1).is_some() {
+                    return Err(RlpError::InvalidLength);
+                }
 
                 *rlp = unpack_rlp(&bytes[1..])?;
 
@@ -347,5 +361,24 @@ mod tests {
 
         let deserialized: TransactionDynamicFee = from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);
+    }
+
+    #[test]
+    fn access_list_tx_suffix() {
+        let bytes = [
+            184, 158, 1, 248, 155, 1, 128, 10, 131, 1, 226, 65, 148, 9, 94, 123, 174, 166, 166,
+            199, 196, 194, 223, 235, 151, 126, 250, 195, 38, 175, 85, 45, 135, 128, 128, 248, 56,
+            247, 148, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 225, 160, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 160, 61, 186, 204, 141, 2, 89, 242, 80, 134, 37, 233, 127, 223, 197, 124, 216,
+            95, 221, 22, 229, 130, 27, 194, 193, 11, 221, 26, 82, 100, 158, 131, 53, 160, 71, 110,
+            16, 105, 121, 91, 24, 58, 135, 176, 170, 41, 42, 127, 75, 120, 239, 12, 63, 190, 98,
+            170, 44, 66, 200, 78, 29, 156, 61, 161, 89, 239, 20,
+        ];
+
+        assert!(matches!(
+            TransactionEnvelope::from_bytes(&bytes),
+            Err(RlpError::InvalidLength)
+        ));
     }
 }
