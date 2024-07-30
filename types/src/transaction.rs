@@ -1,4 +1,4 @@
-use crate::primitives::{Address, SerdeU256, U256};
+use crate::primitives::{Address, U256};
 #[cfg(feature = "fuzzing")]
 use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
@@ -21,20 +21,14 @@ pub enum TransactionEnvelope {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionLegacy {
     pub nonce: u64,
-    #[serde(with = "serde_bytes")]
     pub gas_price: U256,
     pub gas_limit: u64,
-    #[serde(with = "serde_bytes")]
     pub to: Address,
-    #[serde(with = "serde_bytes")]
     pub value: U256,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
-    #[serde(with = "serde_bytes")]
     pub v: U256,
-    #[serde(with = "serde_bytes")]
     pub r: U256,
-    #[serde(with = "serde_bytes")]
     pub s: U256,
 }
 
@@ -42,24 +36,17 @@ pub struct TransactionLegacy {
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionAccessList {
-    #[serde(with = "serde_bytes")]
     pub chain_id: U256,
     pub nonce: u64,
-    #[serde(with = "serde_bytes")]
     pub gas_price: U256,
     pub gas_limit: u64,
-    #[serde(with = "serde_bytes")]
     pub to: Address,
-    #[serde(with = "serde_bytes")]
     pub value: U256,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
     pub access_list: Vec<AccessList>,
-    #[serde(with = "serde_bytes")]
     pub y_parity: U256,
-    #[serde(with = "serde_bytes")]
     pub r: U256,
-    #[serde(with = "serde_bytes")]
     pub s: U256,
 }
 
@@ -67,26 +54,18 @@ pub struct TransactionAccessList {
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TransactionDynamicFee {
-    #[serde(with = "serde_bytes")]
     pub chain_id: U256,
     pub nonce: u64,
-    #[serde(with = "serde_bytes")]
     pub max_priority_fee_per_gas: U256,
-    #[serde(with = "serde_bytes")]
     pub max_fee_per_gas: U256,
     pub gas_limit: u64,
-    #[serde(with = "serde_bytes")]
     pub destination: Address,
-    #[serde(with = "serde_bytes")]
     pub amount: U256,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
     pub access_list: Vec<AccessList>,
-    #[serde(with = "serde_bytes")]
     pub y_parity: U256,
-    #[serde(with = "serde_bytes")]
     pub r: U256,
-    #[serde(with = "serde_bytes")]
     pub s: U256,
 }
 
@@ -94,11 +73,10 @@ pub struct TransactionDynamicFee {
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccessList {
-    #[serde(with = "serde_bytes")]
     pub address: Address,
     // serde_bytes wouldn't figure out this, so use a wrapper type that implements
     // Serialize and Deserialize and that is annotated with serde_bytes
-    pub storage_keys: Vec<SerdeU256>,
+    pub storage_keys: Vec<U256>,
 }
 
 impl TransactionEnvelope {
@@ -200,14 +178,14 @@ mod tests {
     fn tx_ser_legacy() {
         let tx = TransactionLegacy {
             nonce: u64::MAX,
-            gas_price: [1; 32],
+            gas_price: [1; 32].into(),
             gas_limit: u64::MAX,
-            to: [1; 20],
-            value: [1; 32],
+            to: [1; 20].into(),
+            value: [1; 32].into(),
             data: vec![],
-            v: [1; 32],
-            r: [1; 32],
-            s: [1; 32],
+            v: [1; 32].into(),
+            r: [1; 32].into(),
+            s: [1; 32].into(),
         };
 
         let tx_rlp = rlp_rs::to_bytes(&tx).unwrap();
@@ -252,17 +230,17 @@ mod tests {
     #[test]
     fn tx_ser_access_list() {
         let tx = TransactionEnvelope::AccessList(TransactionAccessList {
-            chain_id: [1; 32],
+            chain_id: [1; 32].into(),
             nonce: u64::MAX,
-            gas_price: [1; 32],
+            gas_price: [1; 32].into(),
             gas_limit: u64::MAX,
-            to: [1; 20],
-            value: [1; 32],
+            to: [1; 20].into(),
+            value: [1; 32].into(),
             data: vec![],
             access_list: vec![],
-            y_parity: [1; 32],
-            r: [1; 32],
-            s: [1; 32],
+            y_parity: [1; 32].into(),
+            r: [1; 32].into(),
+            s: [1; 32].into(),
         });
 
         let serialized = tx.as_bytes().unwrap();
@@ -309,18 +287,18 @@ mod tests {
     #[test]
     fn tx_ser_dynamic_fees() {
         let tx = TransactionDynamicFee {
-            chain_id: [1; 32],
+            chain_id: [1; 32].into(),
             nonce: u64::MAX,
-            max_priority_fee_per_gas: [1; 32],
-            max_fee_per_gas: [1; 32],
+            max_priority_fee_per_gas: [1; 32].into(),
+            max_fee_per_gas: [1; 32].into(),
             gas_limit: u64::MAX,
-            destination: [1; 20],
-            amount: [1; 32],
+            destination: [1; 20].into(),
+            amount: [1; 32].into(),
             data: vec![],
             access_list: vec![],
-            y_parity: [1; 32],
-            r: [1; 32],
-            s: [1; 32],
+            y_parity: [1; 32].into(),
+            r: [1; 32].into(),
+            s: [1; 32].into(),
         };
         let tx_envelope = TransactionEnvelope::DynamicFee(tx.clone());
 

@@ -28,7 +28,7 @@ it has been patched to prepend these `0` manually when deserializing to an array
 ## TODO
 
 - [x] Finish implementing serde
-- [ ] Tests for trailing bytes
+- [x] Tests for trailing bytes
 - [ ] Better serde error handling
 - [ ] Reorder functions around
 - [ ] Better API with nice parsing functions

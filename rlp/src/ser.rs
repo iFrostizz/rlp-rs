@@ -8,6 +8,7 @@ use std::rc::Rc;
 #[derive(Debug)]
 enum RefRecursiveBytes {
     Data(Vec<u8>),
+    Verbatim(Vec<u8>),
     Nested(Rc<RefCell<Vec<RefRecursiveBytes>>>),
 }
 
@@ -38,14 +39,18 @@ impl Serializer {
     }
 
     /// pushes bytes to the most nested list we are in or at the highest level.
-    fn push_bytes(&mut self, bytes: Vec<u8>) {
-        let bytes = if let Some(index) = bytes.iter().position(|b| b > &0) {
-            bytes[index..].to_vec()
+    fn push_bytes(&mut self, bytes: Vec<u8>, fixed: bool) {
+        let bytes = if fixed {
+            if let Some(index) = bytes.iter().position(|b| b > &0) {
+                RefRecursiveBytes::Data(bytes[index..].to_vec())
+            } else {
+                RefRecursiveBytes::Data(vec![])
+            }
+        } else if bytes.is_empty() {
+            RefRecursiveBytes::Verbatim(vec![0x80])
         } else {
-            vec![]
+            RefRecursiveBytes::Data(bytes)
         };
-
-        let bytes = RefRecursiveBytes::Data(bytes);
 
         if let Some(top) = self.stack.last_mut() {
             top.borrow_mut().push(bytes);
@@ -57,6 +62,7 @@ impl Serializer {
     fn recursive_into_recursive_bytes(rec: RefRecursiveBytes) -> RecursiveBytes {
         match rec {
             RefRecursiveBytes::Data(bytes) => RecursiveBytes::Bytes(bytes),
+            RefRecursiveBytes::Verbatim(bytes) => RecursiveBytes::Verbatim(bytes),
             RefRecursiveBytes::Nested(list) => {
                 let list = Rc::try_unwrap(list).unwrap().into_inner();
                 let rec_list = list
@@ -110,11 +116,8 @@ macro_rules! impl_int {
 
 impl Serializer {
     fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), RlpError> {
-        self.serialize_slice(&bytes)
-    }
-
-    fn serialize_slice(&mut self, bytes: &[u8]) -> Result<(), RlpError> {
-        ser::Serializer::serialize_bytes(self, bytes)
+        self.push_bytes(bytes.to_vec(), true);
+        Ok(())
     }
 }
 
@@ -162,7 +165,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        self.push_bytes(v.to_vec());
+        self.push_bytes(v.to_vec(), false);
         Ok(())
     }
 
@@ -622,7 +625,7 @@ mod tests {
         let vec = MyVec(vec![]);
 
         let rlp = to_rlp(&vec).unwrap();
-        assert_eq!(rlp.0, vec![RecursiveBytes::Bytes(vec![])]);
+        assert_eq!(rlp.0, vec![RecursiveBytes::Verbatim(vec![0x80])]);
 
         let serialized = to_bytes(&vec).unwrap();
         assert_eq!(serialized, vec![0x80]);
@@ -645,7 +648,7 @@ mod tests {
             rlp.0,
             vec![
                 RecursiveBytes::Bytes("Variant1".as_bytes().to_vec()),
-                RecursiveBytes::Bytes(vec![])
+                RecursiveBytes::Verbatim(vec![0x80])
             ]
         );
     }

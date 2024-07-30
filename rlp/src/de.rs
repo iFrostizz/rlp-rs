@@ -64,12 +64,15 @@ impl Rlp {
         if bytes.len() > S {
             return Err(RlpError::InvalidLength);
         }
+
         if check_trailing && bytes.first().is_some_and(|b| b == &0x00) {
             return Err(RlpError::TrailingBytes);
         }
+
         for _ in 0..(S - bytes.len()) {
             bytes.insert(0, 0); // TODO kinda crap performance wise
         }
+
         Ok(bytes.try_into().unwrap())
     }
 
@@ -434,6 +437,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
                 *self = Rlp::new(recs.into());
                 self.deserialize_str(visitor)
             }
+            RecursiveBytes::Verbatim(_) => Err(RlpError::InvalidBytes),
         }
     }
 
@@ -448,8 +452,8 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
 #[cfg(test)]
 mod tests {
     use super::{from_rlp, Rlp};
-    use crate::{from_bytes, unpack_rlp, RecursiveBytes, RlpError};
-    use serde::Deserialize;
+    use crate::{from_bytes, to_bytes, unpack_rlp, RecursiveBytes, RlpError};
+    use serde::{Deserialize, Serialize};
     use serde_repr::Deserialize_repr;
     use std::borrow::Cow;
 
@@ -544,6 +548,31 @@ mod tests {
         );
 
         assert_eq!(from_bytes::<Vec<String>>(&bytes).unwrap(), vec![cat, dog]);
+    }
+
+    #[test]
+    fn de_vec_leading_zeros() {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct HasVec {
+            #[serde(with = "serde_bytes")]
+            vec: Vec<u8>,
+        }
+
+        let bytes = [0xc1, 0];
+
+        let deserialized = from_bytes::<HasVec>(&bytes).unwrap();
+        assert_eq!(deserialized.vec, vec![0]);
+
+        let serialized = to_bytes(&deserialized).unwrap();
+        assert_eq!(serialized, &bytes);
+
+        let bytes = [0xc1, 0x80];
+
+        let deserialized = from_bytes::<HasVec>(&bytes).unwrap();
+        assert_eq!(deserialized.vec, vec![]);
+
+        let serialized = to_bytes(&deserialized).unwrap();
+        assert_eq!(serialized, &bytes);
     }
 
     #[test]
@@ -696,5 +725,21 @@ mod tests {
             from_bytes::<u16>(&[0x82, 0x00, 0xff]),
             Err(RlpError::TrailingBytes)
         ));
+    }
+
+    #[test]
+    fn azerc() {
+        let bytes = [193, 128];
+
+        #[derive(Debug, Serialize, Deserialize)]
+        struct My {
+            #[serde(with = "serde_bytes")]
+            i: Vec<u8>,
+        }
+
+        let val: My = from_bytes(&bytes).unwrap();
+        let serialized = to_bytes(&val).unwrap();
+
+        assert_eq!(serialized, bytes);
     }
 }

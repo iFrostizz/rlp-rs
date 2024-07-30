@@ -49,7 +49,11 @@ impl std::error::Error for RlpError {}
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum RecursiveBytes {
+    /// Bytes (string)
     Bytes(Vec<u8>),
+    /// Bytes including the length prefix (if any) and must be interpreted as-is
+    Verbatim(Vec<u8>),
+    /// A nested data structure to represent arbitrarily arbitrarily nested arrays (list)
     Nested(Vec<RecursiveBytes>),
 }
 
@@ -291,6 +295,11 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
 fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, RlpError> {
     match rec {
         RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
+        RecursiveBytes::Verbatim(mut bytes) => {
+            let len = bytes.len();
+            pack.append(&mut bytes);
+            Ok(len)
+        }
         RecursiveBytes::Nested(recs) => {
             let mut len = 0;
             let inner_pack = &mut Vec::new();
