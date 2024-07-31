@@ -144,7 +144,6 @@ impl TransactionEnvelope {
 
     /// careful, this function does not perform any suffix data check
     pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
-        // TODO this is only valid if rlp is length of 1
         let tx_type = match rlp.get(0) {
             Some(RecursiveBytes::Nested(_)) => 0,
             Some(RecursiveBytes::Bytes(bytes)) => {

@@ -375,10 +375,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "there is no way to decode the number 0, the priority is given to the empty string"]
     fn unpack_zero() {
         let unpacked = unpack_rlp(&[0x80][..]).unwrap();
-        assert_eq!(unpacked.0, vec![RecursiveBytes::Bytes(vec![0])]);
+        assert_eq!(unpacked.0, vec![RecursiveBytes::Bytes(vec![])]);
     }
 
     #[test]

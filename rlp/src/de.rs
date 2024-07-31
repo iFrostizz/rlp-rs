@@ -69,9 +69,13 @@ impl Rlp {
             return Err(RlpError::TrailingBytes);
         }
 
-        for _ in 0..(S - bytes.len()) {
-            bytes.insert(0, 0); // TODO kinda crap performance wise
-        }
+        bytes = if S > bytes.len() {
+            let mut new_bytes = vec![0; S - bytes.len()];
+            new_bytes.append(&mut bytes);
+            new_bytes
+        } else {
+            bytes
+        };
 
         Ok(bytes.try_into().unwrap())
     }
@@ -118,6 +122,7 @@ struct Seq {
 }
 
 impl Seq {
+    // NOTE elements should be in reverse order
     fn new(de: Vec<Rlp>) -> Self {
         Seq { de }
     }
@@ -133,7 +138,7 @@ impl<'de> SeqAccess<'de> for &mut Seq {
         if self.de.is_empty() {
             Ok(None)
         } else {
-            let rlp = &mut self.de.remove(0); // TODO maybe this is enough to switch to VecDeque everywhere ?
+            let rlp = &mut self.de.pop().unwrap();
             seed.deserialize(rlp).map(Some)
         }
     }
@@ -364,7 +369,11 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
         V: serde::de::Visitor<'de>,
     {
         let recs = self.need_nested()?;
-        let rlps: Vec<Rlp> = recs.into_iter().map(|rec| Rlp(vec![rec].into())).collect(); // TODO don't allocate
+        let rlps: Vec<Rlp> = recs
+            .into_iter()
+            .rev()
+            .map(|rec| Rlp(vec![rec].into()))
+            .collect();
         let mut seq = Seq::new(rlps);
         let res = visitor.visit_seq(&mut seq)?;
         match seq.de.is_empty() {

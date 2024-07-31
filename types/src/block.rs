@@ -145,18 +145,18 @@ impl Header {
         let header = match fields {
             15 => Header::Legacy { common },
             16 | 17 | 20 => {
-                // TODO provide helpers for those
-                let base_fee = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
-                let base_fee = <U256>::deserialize(&mut base_fee.into_rlp())
-                    .map_err(|_| RlpError::MissingBytes)?;
+                let base_fee = <U256>::deserialize(
+                    &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                )
+                .map_err(|_| RlpError::MissingBytes)?;
 
                 if fields == london_fields {
                     Header::London { common, base_fee }
                 } else {
-                    assert_eq!(fields, cancun_fields);
-                    let withdrawal_root = rlp.pop_front().ok_or(RlpError::MissingBytes)?;
-                    let withdrawal_root = <U256>::deserialize(&mut withdrawal_root.into_rlp())
-                        .map_err(|_| RlpError::MissingBytes)?;
+                    let withdrawal_root = <U256>::deserialize(
+                        &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                    )
+                    .map_err(|_| RlpError::MissingBytes)?;
 
                     if fields == shanghai_fields {
                         Header::Shanghai {
@@ -165,6 +165,7 @@ impl Header {
                             withdrawal_root,
                         }
                     } else {
+                        assert_eq!(fields, cancun_fields);
                         let blob_gas_used = u64::deserialize(
                             &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                         )?;
