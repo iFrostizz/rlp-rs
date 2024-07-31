@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rlp_rs::unpack_rlp;
 use rlp_types::Bloom;
 use serde::Deserialize;
@@ -9,8 +9,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("1M bloom decode", |b| {
         b.iter(|| {
             for _ in 0..1_000_000 {
-                let rlp = &mut black_box(unpack_rlp(&bytes).unwrap());
-                let _: Bloom = black_box(<Bloom>::deserialize(rlp).unwrap());
+                let rlp = &mut unpack_rlp(&bytes).unwrap();
+                let _: Bloom = <Bloom>::deserialize(rlp).unwrap();
             }
         })
     });

@@ -140,7 +140,7 @@ impl Rlp {
     }
 }
 
-fn iterative_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBytes>, RlpError> {
+fn unpack_rlp_element(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBytes>, RlpError> {
     let mut unpacked = Vec::new();
 
     while let Some(disc) = bytes.get(cursor) {
@@ -196,7 +196,7 @@ fn iterative_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
             cursor += len as usize;
 
             // we want to represent empty lists so don't remove them
-            RecursiveBytes::Nested(iterative_unpack_rlp(list_bytes, 0)?)
+            RecursiveBytes::Nested(unpack_rlp_element(list_bytes, 0)?)
         } else {
             let len_bytes_len = disc - 0xf7;
             let mut len_bytes_base = [0; 8];
@@ -222,7 +222,7 @@ fn iterative_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
                 .ok_or(RlpError::MissingBytes)?;
             cursor += len;
 
-            RecursiveBytes::Nested(iterative_unpack_rlp(list_bytes, 0)?)
+            RecursiveBytes::Nested(unpack_rlp_element(list_bytes, 0)?)
         };
 
         unpacked.push(ret);
@@ -232,7 +232,7 @@ fn iterative_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<Recursive
 }
 
 pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
-    Ok(Rlp::new(iterative_unpack_rlp(bytes, 0)?.into()))
+    Ok(Rlp::new(unpack_rlp_element(bytes, 0)?.into()))
 }
 
 fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {
@@ -288,7 +288,7 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
     Ok(bytes)
 }
 
-fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, RlpError> {
+fn recursive_pack_rlp(pack: &mut Vec<u8>, rec: RecursiveBytes) -> Result<usize, RlpError> {
     match rec {
         RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
         RecursiveBytes::EmptyList => {
@@ -299,7 +299,7 @@ fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, 
             let mut len = 0;
             let inner_pack = &mut Vec::new();
             for rec in recs {
-                len += recursive_pack_rlp(rec, inner_pack)?;
+                len += recursive_pack_rlp(inner_pack, rec)?;
             }
             let len_bytes = &mut serialize_list_len(len)?;
             len += len_bytes.len();
@@ -313,7 +313,7 @@ fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, 
 pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
     let mut pack = Vec::new();
     while let Some(rec) = rlp.pop_front() {
-        recursive_pack_rlp(rec, &mut pack)?;
+        recursive_pack_rlp(&mut pack, rec)?;
     }
     Ok(pack)
 }
