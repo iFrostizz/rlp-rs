@@ -140,103 +140,99 @@ impl Rlp {
     }
 }
 
-// run a BFS to unpack the rlp
-fn recursive_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBytes>, RlpError> {
-    let disc = if let Some(disc) = bytes.get(cursor) {
-        *disc
-    } else {
-        return Ok(Vec::new());
-    };
-    cursor += 1;
-
+fn iterative_unpack_rlp(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBytes>, RlpError> {
     let mut unpacked = Vec::new();
 
-    let ret = if disc <= 0x7f {
-        let ret = bytes.get((cursor - 1)..cursor).unwrap();
+    while let Some(disc) = bytes.get(cursor) {
+        let disc = *disc;
+        cursor += 1;
 
-        RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 0xb7 {
-        let len = disc - 0x80;
-        let ret = bytes
-            .get(cursor..(cursor + len as usize))
-            .ok_or(RlpError::MissingBytes)?;
+        let ret = if disc <= 0x7f {
+            let ret = bytes.get((cursor - 1)..cursor).unwrap();
 
-        if len == 1 && ret[0] <= 127 {
-            return Err(RlpError::InvalidBytes);
-        }
+            RecursiveBytes::Bytes(ret.to_vec())
+        } else if disc <= 0xb7 {
+            let len = disc - 0x80;
+            let ret = bytes
+                .get(cursor..(cursor + len as usize))
+                .ok_or(RlpError::MissingBytes)?;
 
-        cursor += len as usize;
+            if len == 1 && ret[0] <= 127 {
+                return Err(RlpError::InvalidBytes);
+            }
 
-        RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 0xbf {
-        let len_bytes_len = disc - 0xb7;
-        if len_bytes_len > 8 {
-            // unimplemented!("we do not support > 2**64 bytes long strings");
-            return Err(RlpError::InvalidLength);
-        }
-        let mut len_bytes_base = [0; 8];
-        let len_bytes = bytes
-            .get(cursor..(cursor + len_bytes_len as usize))
-            .ok_or(RlpError::MissingBytes)?;
-        cursor += len_bytes_len as usize;
+            cursor += len as usize;
 
-        len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
-        let len = usize::from_be_bytes(len_bytes_base);
-        if len <= 55 {
-            return Err(RlpError::InvalidLength);
-        }
-        let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?;
-        let ret = bytes
-            .get(cursor..max_cursor)
-            .ok_or(RlpError::MissingBytes)?;
-        cursor += len;
+            RecursiveBytes::Bytes(ret.to_vec())
+        } else if disc <= 0xbf {
+            let len_bytes_len = disc - 0xb7;
+            if len_bytes_len > 8 {
+                // unimplemented!("we do not support > 2**64 bytes long strings");
+                return Err(RlpError::InvalidLength);
+            }
+            let mut len_bytes_base = [0; 8];
+            let len_bytes = bytes
+                .get(cursor..(cursor + len_bytes_len as usize))
+                .ok_or(RlpError::MissingBytes)?;
+            cursor += len_bytes_len as usize;
 
-        RecursiveBytes::Bytes(ret.to_vec())
-    } else if disc <= 0xf7 {
-        let len = disc - 0xc0;
-        let list_bytes = bytes
-            .get(cursor..(cursor + len as usize))
-            .ok_or(RlpError::MissingBytes)?;
-        cursor += len as usize;
+            len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
+            let len = usize::from_be_bytes(len_bytes_base);
+            if len <= 55 {
+                return Err(RlpError::InvalidLength);
+            }
+            let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?;
+            let ret = bytes
+                .get(cursor..max_cursor)
+                .ok_or(RlpError::MissingBytes)?;
+            cursor += len;
 
-        // we want to represent empty lists so don't remove them
-        RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
-    } else {
-        let len_bytes_len = disc - 0xf7;
-        let mut len_bytes_base = [0; 8];
-        let len_bytes = bytes
-            .get(cursor..(cursor + len_bytes_len as usize))
-            .ok_or(RlpError::MissingBytes)?;
+            RecursiveBytes::Bytes(ret.to_vec())
+        } else if disc <= 0xf7 {
+            let len = disc - 0xc0;
+            let list_bytes = bytes
+                .get(cursor..(cursor + len as usize))
+                .ok_or(RlpError::MissingBytes)?;
+            cursor += len as usize;
 
-        if len_bytes[0] == 0 {
-            return Err(RlpError::TrailingBytes);
-        }
+            // we want to represent empty lists so don't remove them
+            RecursiveBytes::Nested(iterative_unpack_rlp(list_bytes, 0)?)
+        } else {
+            let len_bytes_len = disc - 0xf7;
+            let mut len_bytes_base = [0; 8];
+            let len_bytes = bytes
+                .get(cursor..(cursor + len_bytes_len as usize))
+                .ok_or(RlpError::MissingBytes)?;
 
-        cursor += len_bytes_len as usize;
-        len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
+            if len_bytes[0] == 0 {
+                return Err(RlpError::TrailingBytes);
+            }
 
-        let len = usize::from_be_bytes(len_bytes_base);
-        if len < 55 {
-            return Err(RlpError::InvalidLength);
-        }
+            cursor += len_bytes_len as usize;
+            len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
 
-        let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?; // TODO wrong error
-        let list_bytes = bytes
-            .get(cursor..max_cursor)
-            .ok_or(RlpError::MissingBytes)?;
-        cursor += len;
+            let len = usize::from_be_bytes(len_bytes_base);
+            if len < 55 {
+                return Err(RlpError::InvalidLength);
+            }
 
-        RecursiveBytes::Nested(recursive_unpack_rlp(list_bytes, 0)?)
-    };
+            let max_cursor = cursor.checked_add(len).ok_or(RlpError::InvalidLength)?; // TODO wrong error
+            let list_bytes = bytes
+                .get(cursor..max_cursor)
+                .ok_or(RlpError::MissingBytes)?;
+            cursor += len;
 
-    unpacked.push(ret);
-    unpacked.append(&mut recursive_unpack_rlp(bytes, cursor)?);
+            RecursiveBytes::Nested(iterative_unpack_rlp(list_bytes, 0)?)
+        };
+
+        unpacked.push(ret);
+    }
 
     Ok(unpacked)
 }
 
 pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
-    Ok(Rlp::new(recursive_unpack_rlp(bytes, 0)?.into()))
+    Ok(Rlp::new(iterative_unpack_rlp(bytes, 0)?.into()))
 }
 
 fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {

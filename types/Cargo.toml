@@ -16,9 +16,16 @@ hex = "0.4.3"
 criterion = "0.3"
 
 [[bench]]
-name = "block_decoding"
+name = "block"
+harness = false
+
+[[bench]]
+name = "bloom"
 harness = false
 
 [features]
 fuzzing = ["dep:libfuzzer-sys"]
 test-utils = []
+
+[profile.bench]
+debug = true

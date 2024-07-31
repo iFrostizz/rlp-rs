@@ -36,19 +36,18 @@ macro_rules! vec_type {
 
         #[allow(clippy::from_over_into)]
         impl Into<[u8; $size]> for $name {
-            fn into(mut self) -> [u8; $size] {
+            fn into(self) -> [u8; $size] {
                 if self.0.len() > $size {
                     unreachable!();
                 }
 
-                let bytes = if self.0.len() != $size {
-                    let mut bytes = vec![0; $size - self.0.len()];
-                    bytes.append(&mut self.0);
-                    bytes
+                if self.0.len() != $size {
+                    let mut arr = [0; $size];
+                    arr[($size - self.0.len())..].copy_from_slice(&self.0);
+                    arr
                 } else {
-                    self.0
-                };
-                bytes.try_into().unwrap()
+                    self.0.try_into().unwrap()
+                }
             }
         }
 

@@ -39,7 +39,7 @@ impl Serializer {
     }
 
     /// pushes bytes to the most nested list we are in or at the highest level.
-    fn push_bytes(&mut self, bytes: Vec<u8>, fixed: bool) {
+    fn push_bytes(&mut self, bytes: &[u8], fixed: bool) {
         let bytes = if fixed {
             if let Some(index) = bytes.iter().position(|b| b > &0) {
                 RefRecursiveBytes::Data(bytes[index..].to_vec())
@@ -49,7 +49,7 @@ impl Serializer {
         } else if bytes.is_empty() {
             RefRecursiveBytes::EmptyList
         } else {
-            RefRecursiveBytes::Data(bytes)
+            RefRecursiveBytes::Data(bytes.to_vec())
         };
 
         if let Some(top) = self.stack.last_mut() {
@@ -116,7 +116,7 @@ macro_rules! impl_int {
 
 impl Serializer {
     fn serialize_array<const N: usize>(&mut self, bytes: [u8; N]) -> Result<(), RlpError> {
-        self.push_bytes(bytes.to_vec(), true);
+        self.push_bytes(&bytes, true);
         Ok(())
     }
 }
@@ -165,7 +165,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        self.push_bytes(v.to_vec(), false);
+        self.push_bytes(v, false);
         Ok(())
     }
 
