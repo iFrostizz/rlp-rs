@@ -9,4 +9,12 @@ serde = { workspace = true }
 serde_bytes = { workspace = true }
 
 [dev-dependencies]
+criterion = "0.3"
 serde_repr = "0.1.19"
+
+[[bench]]
+name = "nested_lists"
+harness = false
+
+[profile.bench]
+debug = true

@@ -6,15 +6,18 @@ RLP Encode / Decode arbitrary bytes
 
 ```sh
 1000 access list block decode with 2 tx
-                        time:   [3.2634 ms 3.2663 ms 3.2693 ms]
+                        time:   [3.0553 ms 3.0619 ms 3.0718 ms]
 
-1M bloom decode         time:   [53.276 ms 53.334 ms 53.395 ms]
+1M bloom decode         time:   [49.747 ms 49.786 ms 49.827 ms]
 
 1000 dynamic fee block decode with 2 tx
-                        time:   [3.3692 ms 3.3719 ms 3.3748 ms]
+                        time:   [3.1079 ms 3.1148 ms 3.1255 ms]
 
 1000 legacy block decode with 1 tx
-                        time:   [1.9522 ms 1.9554 ms 1.9603 ms]
+                        time:   [1.7926 ms 1.7972 ms 1.8043 ms]
+
+nested list serialization
+                        time:   [4.3440 ms 4.3590 ms 4.3795 ms]
 ```
 
 ## Features
