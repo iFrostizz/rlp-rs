@@ -11,7 +11,3 @@ libfuzzer-sys = "0.4"
 
 [patch.crates-io]
 serde_bytes = { git = "https://github.com/iFrostizz/bytes" }
-
-[profile.bench]
-debug = true
-

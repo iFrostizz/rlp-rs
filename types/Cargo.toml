@@ -16,7 +16,15 @@ hex = "0.4.3"
 criterion = "0.3"
 
 [[bench]]
-name = "block"
+name = "legacy_block"
+harness = false
+
+[[bench]]
+name = "access_list_block"
+harness = false
+
+[[bench]]
+name = "dynamic_fee_block"
 harness = false
 
 [[bench]]

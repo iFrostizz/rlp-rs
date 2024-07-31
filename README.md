@@ -2,6 +2,21 @@
 
 RLP Encode / Decode arbitrary bytes
 
+## Benches
+
+```sh
+1000 access list block decode with 2 tx
+                        time:   [3.2634 ms 3.2663 ms 3.2693 ms]
+
+1M bloom decode         time:   [53.276 ms 53.334 ms 53.395 ms]
+
+1000 dynamic fee block decode with 2 tx
+                        time:   [3.3692 ms 3.3719 ms 3.3748 ms]
+
+1000 legacy block decode with 1 tx
+                        time:   [1.9522 ms 1.9554 ms 1.9603 ms]
+```
+
 ## Features
 
 - Serde integration
