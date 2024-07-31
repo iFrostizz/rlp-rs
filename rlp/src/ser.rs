@@ -8,7 +8,7 @@ use std::rc::Rc;
 #[derive(Debug)]
 enum RefRecursiveBytes {
     Data(Vec<u8>),
-    Verbatim(Vec<u8>),
+    EmptyList,
     Nested(Rc<RefCell<Vec<RefRecursiveBytes>>>),
 }
 
@@ -47,7 +47,7 @@ impl Serializer {
                 RefRecursiveBytes::Data(vec![])
             }
         } else if bytes.is_empty() {
-            RefRecursiveBytes::Verbatim(vec![0x80])
+            RefRecursiveBytes::EmptyList
         } else {
             RefRecursiveBytes::Data(bytes)
         };
@@ -62,7 +62,7 @@ impl Serializer {
     fn recursive_into_recursive_bytes(rec: RefRecursiveBytes) -> RecursiveBytes {
         match rec {
             RefRecursiveBytes::Data(bytes) => RecursiveBytes::Bytes(bytes),
-            RefRecursiveBytes::Verbatim(bytes) => RecursiveBytes::Verbatim(bytes),
+            RefRecursiveBytes::EmptyList => RecursiveBytes::EmptyList,
             RefRecursiveBytes::Nested(list) => {
                 let list = Rc::try_unwrap(list).unwrap().into_inner();
                 let rec_list = list
@@ -625,7 +625,7 @@ mod tests {
         let vec = MyVec(vec![]);
 
         let rlp = to_rlp(&vec).unwrap();
-        assert_eq!(rlp.0, vec![RecursiveBytes::Verbatim(vec![0x80])]);
+        assert_eq!(rlp.0, vec![RecursiveBytes::EmptyList]);
 
         let serialized = to_bytes(&vec).unwrap();
         assert_eq!(serialized, vec![0x80]);
@@ -648,7 +648,7 @@ mod tests {
             rlp.0,
             vec![
                 RecursiveBytes::Bytes("Variant1".as_bytes().to_vec()),
-                RecursiveBytes::Verbatim(vec![0x80])
+                RecursiveBytes::EmptyList
             ]
         );
     }

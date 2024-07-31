@@ -437,7 +437,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
                 *self = Rlp::new(recs.into());
                 self.deserialize_str(visitor)
             }
-            RecursiveBytes::Verbatim(_) => Err(RlpError::InvalidBytes),
+            RecursiveBytes::EmptyList => Err(RlpError::InvalidBytes),
         }
     }
 

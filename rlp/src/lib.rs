@@ -51,8 +51,8 @@ impl std::error::Error for RlpError {}
 pub enum RecursiveBytes {
     /// Bytes (string)
     Bytes(Vec<u8>),
-    /// Bytes including the length prefix (if any) and must be interpreted as-is
-    Verbatim(Vec<u8>),
+    /// An empty list that should serialize to [0x80]
+    EmptyList,
     /// A nested data structure to represent arbitrarily arbitrarily nested arrays (list)
     Nested(Vec<RecursiveBytes>),
 }
@@ -295,10 +295,9 @@ fn serialize_list_len(len: usize) -> Result<Vec<u8>, RlpError> {
 fn recursive_pack_rlp(rec: RecursiveBytes, pack: &mut Vec<u8>) -> Result<usize, RlpError> {
     match rec {
         RecursiveBytes::Bytes(bytes) => append_rlp_bytes(pack, bytes),
-        RecursiveBytes::Verbatim(mut bytes) => {
-            let len = bytes.len();
-            pack.append(&mut bytes);
-            Ok(len)
+        RecursiveBytes::EmptyList => {
+            pack.push(0x80);
+            Ok(1)
         }
         RecursiveBytes::Nested(recs) => {
             let mut len = 0;
@@ -573,6 +572,7 @@ mod tests {
     #[test]
     fn trailing_bytes_deserialize() {
         #[derive(Debug, Deserialize)]
+        #[allow(dead_code)]
         struct MyType([u8; 9]);
 
         let tests = [&[201, 69, 59, 59, 59, 0, 59, 59, 59, 10][..]];
