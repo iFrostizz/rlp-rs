@@ -67,22 +67,22 @@ impl Block {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommonHeader {
-    parent_hash: U256,
-    uncle_hash: U256,
-    coinbase: Address,
-    state_root: U256,
-    tx_root: U256,
-    receipt_hash: U256,
-    bloom: Bloom,
-    difficulty: U256,
-    number: U256,
-    gas_limit: u64,
-    gas_used: u64,
-    time: u64,
+    pub parent_hash: U256,
+    pub uncle_hash: U256,
+    pub coinbase: Address,
+    pub state_root: U256,
+    pub tx_root: U256,
+    pub receipt_hash: U256,
+    pub bloom: Bloom,
+    pub difficulty: U256,
+    pub number: U256,
+    pub gas_limit: u64,
+    pub gas_used: u64,
+    pub time: u64,
     #[serde(with = "serde_bytes")]
-    extra: Vec<u8>,
-    mix_digest: U256,
-    nonce: Nonce,
+    pub extra: Vec<u8>,
+    pub mix_digest: U256,
+    pub nonce: Nonce,
 }
 
 impl CommonHeader {

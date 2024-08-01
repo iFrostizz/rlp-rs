@@ -31,6 +31,10 @@ harness = false
 name = "bloom"
 harness = false
 
+[[bench]]
+name = "legacy_header"
+harness = false
+
 [features]
 fuzzing = ["dep:libfuzzer-sys"]
 test-utils = []
