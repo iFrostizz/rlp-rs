@@ -121,6 +121,16 @@ pub enum Header {
 }
 
 impl Header {
+    pub fn common(&self) -> &CommonHeader {
+        match self {
+            Header::Legacy { common }
+            | Header::London { common, .. }
+            | Header::Shanghai { common, .. }
+            | Header::Cancun { common, .. }
+            | Header::Unknown { common, .. } => common,
+        }
+    }
+
     pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
         let rlp = &mut rlp;
         let mut rlp = rlp.flatten_nested().ok_or(RlpError::MissingBytes)?;
