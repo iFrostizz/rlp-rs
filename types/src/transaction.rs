@@ -5,9 +5,8 @@ use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TransactionEnvelope {
     Legacy(TransactionLegacy),
@@ -16,9 +15,8 @@ pub enum TransactionEnvelope {
     // TODO Blob transaction
 }
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct TransactionLegacy {
     pub nonce: u64,
     pub gas_price: U256,
@@ -32,9 +30,8 @@ pub struct TransactionLegacy {
     pub s: U256,
 }
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq, Hash)]
 pub struct TransactionAccessList {
     pub chain_id: U256,
     pub nonce: u64,
@@ -50,9 +47,8 @@ pub struct TransactionAccessList {
     pub s: U256,
 }
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq, Hash)]
 pub struct TransactionDynamicFee {
     pub chain_id: U256,
     pub nonce: u64,
@@ -71,7 +67,7 @@ pub struct TransactionDynamicFee {
 
 #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct AccessList {
     pub address: Address,
     // serde_bytes wouldn't figure out this, so use a wrapper type that implements

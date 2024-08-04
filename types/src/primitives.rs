@@ -11,9 +11,8 @@ use serde::{Deserialize, Serialize};
 /// make the serialization not equivalent.
 macro_rules! vec_type {
     ($name:ident, $size:literal) => {
-        #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
         #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
-        #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+        #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, Hash)]
         pub struct $name(#[serde(with = "serde_bytes")] Vec<u8>);
 
         impl $name {
@@ -48,6 +47,12 @@ macro_rules! vec_type {
                 } else {
                     self.0.try_into().unwrap()
                 }
+            }
+        }
+
+        impl AsRef<[u8]> for $name {
+            fn as_ref(&self) -> &[u8] {
+                self.0.as_slice()
             }
         }
 

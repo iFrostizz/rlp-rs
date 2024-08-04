@@ -3,27 +3,14 @@ use crate::TransactionEnvelope;
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub struct Block {
-    header: Header,
-    transactions: Vec<TransactionEnvelope>,
-    uncles: Vec<Header>,
+    pub header: Header,
+    pub transactions: Vec<TransactionEnvelope>,
+    pub uncles: Vec<Header>,
 }
 
 impl Block {
-    pub fn header(&self) -> &Header {
-        &self.header
-    }
-
-    pub fn transactions(&self) -> &[TransactionEnvelope] {
-        &self.transactions
-    }
-
-    pub fn uncles(&self) -> &[Header] {
-        &self.uncles
-    }
-
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
@@ -64,8 +51,7 @@ impl Block {
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq, Clone, Default)]
 pub struct CommonHeader {
     pub parent_hash: U256,
     pub uncle_hash: U256,
@@ -91,8 +77,7 @@ impl CommonHeader {
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum Header {
     Legacy {
         common: CommonHeader,
@@ -118,6 +103,14 @@ pub enum Header {
         common: CommonHeader,
         rest: Vec<Vec<u8>>,
     },
+}
+
+impl Default for Header {
+    fn default() -> Self {
+        Self::Legacy {
+            common: Default::default(),
+        }
+    }
 }
 
 impl Header {
