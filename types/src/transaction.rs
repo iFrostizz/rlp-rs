@@ -65,7 +65,6 @@ pub struct TransactionDynamicFee {
     pub s: U256,
 }
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct AccessList {
