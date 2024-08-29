@@ -141,36 +141,36 @@ pub enum Header {
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub struct LegacyHeader {
-    common: CommonHeader,
+    pub common: CommonHeader,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub struct LondonHeader {
-    common: CommonHeader,
-    base_fee: U256,
+    pub common: CommonHeader,
+    pub base_fee: U256,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub struct ShanghaiHeader {
-    common: CommonHeader,
-    base_fee: U256,
-    withdrawal_root: U256,
+    pub common: CommonHeader,
+    pub base_fee: U256,
+    pub withdrawal_root: U256,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub struct CancunHeader {
-    common: CommonHeader,
-    base_fee: U256,
-    withdrawal_root: U256,
-    blob_gas_used: u64,
-    excess_blob_gas: u64,
-    parent_beacon_block_root: U256,
+    pub common: CommonHeader,
+    pub base_fee: U256,
+    pub withdrawal_root: U256,
+    pub blob_gas_used: u64,
+    pub excess_blob_gas: u64,
+    pub parent_beacon_block_root: U256,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub struct UnknownHeader {
-    common: CommonHeader,
-    rest: Vec<Vec<u8>>,
+    pub common: CommonHeader,
+    pub rest: Vec<Vec<u8>>,
 }
 
 impl Default for Header {
