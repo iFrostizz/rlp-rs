@@ -8,7 +8,7 @@ fuzz_target!(|tx_bytes: &[u8]| -> Corpus {
         Ok(tx) => tx,
         Err(_) => return Corpus::Reject,
     };
-    let serialized = tx.as_bytes().unwrap();
+    let serialized = rlp_rs::to_bytes(&tx).unwrap();
     assert_eq!(tx_bytes, serialized);
     Corpus::Keep
 });
