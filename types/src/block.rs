@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
 // TODO implement Serialize
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default, Serialize)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<TransactionEnvelope>,
@@ -80,18 +80,7 @@ impl Block {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], RlpError> {
-        let bytes = match &self.header {
-            Header::Legacy(header) => rlp_rs::to_bytes(header),
-            Header::London(header) => rlp_rs::to_bytes(header),
-            Header::Shanghai(header) => rlp_rs::to_bytes(header),
-            Header::Cancun(header) => rlp_rs::to_bytes(header),
-            Header::Unknown(header) => rlp_rs::to_bytes(header),
-        }?;
-        // TODO #[serde(flatten)] but it seems to be transforming the structure into a map.
-        let rlp = rlp_rs::unpack_rlp(&bytes)?
-            .flatten_nested()
-            .ok_or(RlpError::ExpectedList)?;
-        let bytes = rlp_rs::pack_rlp(rlp)?;
+        let bytes = rlp_rs::to_bytes(&self.header)?;
         let mut hasher = Keccak256::new();
         hasher.update(bytes);
         Ok(hasher.finalize().into())
@@ -125,66 +114,167 @@ impl CommonHeader {
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+#[serde(untagged)]
 pub enum Header {
-    // TODO we should probably not encode the variant name in this case
-    Legacy(LegacyHeader),
-    London(LondonHeader),
-    Shanghai(ShanghaiHeader),
-    Cancun(CancunHeader),
-    Unknown(UnknownHeader),
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-pub struct LegacyHeader {
-    pub common: CommonHeader,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-pub struct LondonHeader {
-    pub common: CommonHeader,
-    pub base_fee: U256,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-pub struct ShanghaiHeader {
-    pub common: CommonHeader,
-    pub base_fee: U256,
-    pub withdrawal_root: U256,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-pub struct CancunHeader {
-    pub common: CommonHeader,
-    pub base_fee: U256,
-    pub withdrawal_root: U256,
-    pub blob_gas_used: u64,
-    pub excess_blob_gas: u64,
-    pub parent_beacon_block_root: U256,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-pub struct UnknownHeader {
-    pub common: CommonHeader,
-    pub rest: Vec<Vec<u8>>,
+    Legacy {
+        parent_hash: U256,
+        uncle_hash: U256,
+        coinbase: Address,
+        state_root: U256,
+        tx_root: U256,
+        receipt_hash: U256,
+        bloom: Bloom,
+        difficulty: U256,
+        number: U256,
+        gas_limit: u64,
+        gas_used: u64,
+        time: u64,
+        #[serde(with = "serde_bytes")]
+        extra: Vec<u8>,
+        mix_digest: U256,
+        nonce: Nonce,
+    },
+    London {
+        parent_hash: U256,
+        uncle_hash: U256,
+        coinbase: Address,
+        state_root: U256,
+        tx_root: U256,
+        receipt_hash: U256,
+        bloom: Bloom,
+        difficulty: U256,
+        number: U256,
+        gas_limit: u64,
+        gas_used: u64,
+        time: u64,
+        #[serde(with = "serde_bytes")]
+        extra: Vec<u8>,
+        mix_digest: U256,
+        nonce: Nonce,
+        base_fee: U256,
+    },
+    Shanghai {
+        parent_hash: U256,
+        uncle_hash: U256,
+        coinbase: Address,
+        state_root: U256,
+        tx_root: U256,
+        receipt_hash: U256,
+        bloom: Bloom,
+        difficulty: U256,
+        number: U256,
+        gas_limit: u64,
+        gas_used: u64,
+        time: u64,
+        #[serde(with = "serde_bytes")]
+        extra: Vec<u8>,
+        mix_digest: U256,
+        nonce: Nonce,
+        base_fee: U256,
+        withdrawal_root: U256,
+    },
+    Cancun {
+        parent_hash: U256,
+        uncle_hash: U256,
+        coinbase: Address,
+        state_root: U256,
+        tx_root: U256,
+        receipt_hash: U256,
+        bloom: Bloom,
+        difficulty: U256,
+        number: U256,
+        gas_limit: u64,
+        gas_used: u64,
+        time: u64,
+        #[serde(with = "serde_bytes")]
+        extra: Vec<u8>,
+        mix_digest: U256,
+        nonce: Nonce,
+        base_fee: U256,
+        withdrawal_root: U256,
+        blob_gas_used: u64,
+        excess_blob_gas: u64,
+        parent_beacon_block_root: U256,
+    },
+    Unknown {
+        parent_hash: U256,
+        uncle_hash: U256,
+        coinbase: Address,
+        state_root: U256,
+        tx_root: U256,
+        receipt_hash: U256,
+        bloom: Bloom,
+        difficulty: U256,
+        number: U256,
+        gas_limit: u64,
+        gas_used: u64,
+        time: u64,
+        #[serde(with = "serde_bytes")]
+        extra: Vec<u8>,
+        mix_digest: U256,
+        nonce: Nonce,
+        rest: Vec<Vec<u8>>,
+    },
 }
 
 impl Default for Header {
     fn default() -> Self {
-        Self::Legacy(LegacyHeader {
-            common: Default::default(),
-        })
+        Self::Legacy {
+            parent_hash: Default::default(),
+            uncle_hash: Default::default(),
+            coinbase: Default::default(),
+            state_root: Default::default(),
+            tx_root: Default::default(),
+            receipt_hash: Default::default(),
+            bloom: Default::default(),
+            difficulty: Default::default(),
+            number: Default::default(),
+            gas_limit: Default::default(),
+            gas_used: Default::default(),
+            time: Default::default(),
+            extra: Default::default(),
+            mix_digest: Default::default(),
+            nonce: Default::default(),
+        }
     }
+}
+
+macro_rules! common_impl {
+    ($lit:ident, $common:ident) => {
+        common_impl!($lit, $common, {})
+    };
+    ($lit:ident, $common:ident, { $($rest:tt)* }) => {
+        Header::$lit {
+            parent_hash: $common.parent_hash,
+            uncle_hash: $common.uncle_hash,
+            coinbase: $common.coinbase,
+            state_root: $common.state_root,
+            tx_root: $common.tx_root,
+            receipt_hash: $common.receipt_hash,
+            bloom: $common.bloom,
+            difficulty: $common.difficulty,
+            number: $common.number,
+            gas_limit: $common.gas_limit,
+            gas_used: $common.gas_used,
+            time: $common.time,
+            extra: $common.extra,
+            mix_digest: $common.mix_digest,
+            nonce: $common.nonce,
+            $($rest)*
+        }
+    };
 }
 
 impl Header {
     pub fn common(&self) -> &CommonHeader {
-        match self {
-            Header::Legacy(LegacyHeader { common })
-            | Header::London(LondonHeader { common, .. })
-            | Header::Shanghai(ShanghaiHeader { common, .. })
-            | Header::Cancun(CancunHeader { common, .. })
-            | Header::Unknown(UnknownHeader { common, .. }) => common,
-        }
+        todo!();
+        // match self {
+        //     Header::Legacy(LegacyHeader { common })
+        //     | Header::London(LondonHeader { common, .. })
+        //     | Header::Shanghai(ShanghaiHeader { common, .. })
+        //     | Header::Cancun(CancunHeader { common, .. })
+        //     | Header::Unknown(UnknownHeader { common, .. }) => common,
+        // }
     }
 
     fn common_from_raw_rlp(rlp: &mut Rlp) -> Result<CommonHeader, RlpError> {
@@ -216,7 +306,7 @@ impl Header {
         match fields {
             15 | 16 | 17 | 20 => {
                 let header = match fields {
-                    15 => Header::Legacy(LegacyHeader { common }),
+                    15 => common_impl!(Legacy, common),
                     16 | 17 | 20 => {
                         let base_fee = <U256>::deserialize(
                             &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
@@ -224,7 +314,8 @@ impl Header {
                         .map_err(|_| RlpError::MissingBytes)?;
 
                         if fields == london_fields {
-                            Header::London(LondonHeader { common, base_fee })
+                            // Header::London(LondonHeader { common, base_fee })
+                            common_impl!(London, common, { base_fee })
                         } else {
                             let withdrawal_root = <U256>::deserialize(
                                 &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
@@ -232,11 +323,7 @@ impl Header {
                             .map_err(|_| RlpError::MissingBytes)?;
 
                             if fields == shanghai_fields {
-                                Header::Shanghai(ShanghaiHeader {
-                                    common,
-                                    base_fee,
-                                    withdrawal_root,
-                                })
+                                common_impl!(Shanghai, common, { base_fee, withdrawal_root})
                             } else {
                                 assert_eq!(fields, cancun_fields);
                                 let blob_gas_used = u64::deserialize(
@@ -249,8 +336,7 @@ impl Header {
                                     &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                                 )?;
 
-                                Header::Cancun(CancunHeader {
-                                    common,
+                                common_impl!(Cancun, common, {
                                     base_fee,
                                     withdrawal_root,
                                     blob_gas_used,
@@ -274,7 +360,7 @@ impl Header {
                     .into_iter()
                     .map(pack_rlp)
                     .collect::<Result<Vec<Vec<u8>>, _>>()?;
-                Ok(Header::Unknown(UnknownHeader { common, rest }))
+                Ok(common_impl!(Unknown, common, { rest }))
             }
         }
     }
@@ -298,7 +384,7 @@ impl Header {
             .map(pack_rlp)
             .collect::<Result<Vec<Vec<u8>>, _>>()?;
 
-        Ok(Header::Unknown(UnknownHeader { common, rest }))
+        Ok(common_impl!(Unknown, common, { rest }))
     }
 }
 
@@ -318,9 +404,6 @@ mod tests {
     fn decode_legacy_block() {
         let bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::Legacy(LegacyHeader { common }) = block.header else {
-            panic!("invalid block header kind");
-        };
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -340,8 +423,8 @@ mod tests {
         let number = vec![1u8].try_into().unwrap();
 
         assert_eq!(
-            common,
-            CommonHeader {
+            block.header,
+            Header::Legacy {
                 parent_hash: [
                     131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
                     66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
@@ -424,9 +507,6 @@ mod tests {
     fn decode_1559_block() {
         let bytes = hex::decode("f9030bf901fea083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4843b9aca00f90106f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b8a302f8a0018080843b9aca008301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000080a0fe38ca4e44a30002ac54af7cf922a6ac2ba11b7d22f548e8ecb3f51f41cb31b0a06de6a5cbae13c0c856e33acf021b51819636cfc009d39eafb9f606d546e305a8c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::London(LondonHeader { common, base_fee }) = block.header else {
-            panic!("unexpected header kind");
-        };
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -445,9 +525,11 @@ mod tests {
                 .try_into()
                 .unwrap();
 
+        let base_fee: U256 = vec![59, 154, 202, 0].try_into().unwrap();
+
         assert_eq!(
-            common,
-            CommonHeader {
+            block.header,
+            Header::London {
                 parent_hash: [
                     131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
                     66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
@@ -478,7 +560,8 @@ mod tests {
                 time: 1426516743,
                 extra: vec![],
                 mix_digest,
-                nonce: [161, 58, 90, 140, 143, 43, 177, 196].into()
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196].into(),
+                base_fee: base_fee.clone()
             }
         );
 
@@ -587,9 +670,6 @@ mod tests {
     fn decode_2718_block() {
         let bytes = hex::decode("f90319f90211a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a0e6e49996c7ec59f7a23d22b83239a60151512c65613bf84a0d7da336399ebc4aa0cafe75574d59780665a97fbfd11365c7545aa8f1abf4e5e12e8243334ef7286bb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000083020000820200832fefd882a410845506eb0796636f6f6c65737420626c6f636b206f6e20636861696ea0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f90101f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b89e01f89b01800a8301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000001a03dbacc8d0259f2508625e97fdfc57cd85fdd16e5821bc2c10bdd1a52649e8335a0476e10695b183a87b0aa292a7f4b78ef0c3fbe62aa2c42c84e1d9c3da159ef14c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::Legacy(LegacyHeader { common }) = block.header else {
-            panic!("unexpected header kind");
-        };
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -609,8 +689,8 @@ mod tests {
         let number = 512u16.to_be_bytes().to_vec().try_into().unwrap();
 
         assert_eq!(
-            common,
-            CommonHeader {
+            block.header,
+            Header::Legacy {
                 parent_hash: [0; 32].into(),
                 uncle_hash: [
                     29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
@@ -755,5 +835,13 @@ mod tests {
                 .try_into()
                 .unwrap();
         assert_eq!(block.hash().unwrap(), hash)
+    }
+
+    #[test]
+    fn block_serde() {
+        let block = Block::default();
+        let bytes = rlp_rs::to_bytes(&block).unwrap();
+        let block2 = Block::from_bytes(&bytes).unwrap();
+        assert_eq!(block, block2);
     }
 }

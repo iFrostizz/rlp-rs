@@ -194,7 +194,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.serialize_str(variant)
+        if !variant.is_empty() {
+            self.serialize_str(variant)?
+        }
+        Ok(())
     }
 
     fn serialize_newtype_struct<T>(
@@ -218,7 +221,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_str(variant)?;
+        if !variant.is_empty() {
+            self.serialize_str(variant)?;
+        }
         value.serialize(self)
     }
 
@@ -246,7 +251,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.serialize_str(variant)?;
+        if !variant.is_empty() {
+            self.serialize_str(variant)?;
+        }
         self.serialize_seq(Some(len))
     }
 
@@ -307,7 +314,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        // self.end_list();
+        // tuples are not treated as "list with known size"
         Ok(())
     }
 }
