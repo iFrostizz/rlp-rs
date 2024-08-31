@@ -4,6 +4,7 @@ use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
+// TODO implement Serialize
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub struct Block {
     pub header: Header,
@@ -13,31 +14,25 @@ pub struct Block {
 
 impl Block {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let raw_rlp = unpack_rlp(bytes)?;
-
-        let rlp_iter = &mut raw_rlp.into_iter();
-        let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
-
-        let flat_rlp = rlp_inner.flatten_nested().ok_or(RlpError::ExpectedList)?;
-        let rlp_iter = &mut flat_rlp.into_iter();
-
+        let rlp_iter = &mut Self::before_header(bytes)?;
         let header = Self::header_from_rlp(rlp_iter, false)?;
-
         Self::after_header(rlp_iter, header)
     }
 
     pub fn unknown_from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        let rlp_iter = &mut Self::before_header(bytes)?;
+        let header = Self::header_from_rlp(rlp_iter, true)?;
+        Self::after_header(rlp_iter, header)
+    }
+
+    pub fn before_header(bytes: &[u8]) -> Result<impl Iterator<Item = Rlp>, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
         let rlp_iter = &mut raw_rlp.into_iter();
         let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
 
         let flat_rlp = rlp_inner.flatten_nested().ok_or(RlpError::ExpectedList)?;
-        let rlp_iter = &mut flat_rlp.into_iter();
-
-        let header = Self::header_from_rlp(rlp_iter, true)?;
-
-        Self::after_header(rlp_iter, header)
+        Ok(flat_rlp.into_iter())
     }
 
     pub fn after_header(
