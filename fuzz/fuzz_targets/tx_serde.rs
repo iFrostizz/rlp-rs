@@ -5,8 +5,6 @@ use rlp_types::TransactionEnvelope;
 
 fuzz_target!(|tx: TransactionEnvelope| {
     let bytes = rlp_rs::to_bytes(&tx).unwrap();
-    let bytes2 = tx.as_bytes().unwrap();
-    assert_eq!(bytes, bytes2);
-    // let decoded_tx = TransactionEnvelope::from_bytes(&bytes).unwrap();
-    // assert_eq!(tx, decoded_tx);
+    let decoded_tx = TransactionEnvelope::from_bytes(&bytes).unwrap();
+    assert_eq!(tx, decoded_tx);
 });
