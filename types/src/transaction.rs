@@ -1,8 +1,8 @@
 use crate::primitives::{Address, U256};
 #[cfg(feature = "fuzzing")]
 use libfuzzer_sys::arbitrary::{self, Arbitrary};
-use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
-use serde::{Deserialize, Serialize};
+use rlp_rs::{unpack_rlp, RecursiveBytes, Rlp, RlpError};
+use serde::{ser::SerializeTuple, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
@@ -12,7 +12,7 @@ pub enum TransactionEnvelope {
     Legacy(TransactionLegacy),
     AccessList(TransactionAccessList),
     DynamicFee(TransactionDynamicFee),
-    // TODO Blob transaction
+    Blob(TransactionBlob),
 }
 
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
@@ -66,6 +66,26 @@ pub struct TransactionDynamicFee {
 }
 
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq, Hash)]
+pub struct TransactionBlob {
+    pub chain_id: U256,
+    pub nonce: u64,
+    pub max_priority_fee_per_gas: U256,
+    pub max_fee_per_gas: U256,
+    pub gas_limit: u64,
+    pub to: Address,
+    pub value: U256,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+    pub access_list: Vec<AccessList>,
+    pub max_fee_per_blob_gas: U256,
+    pub blob_hashes: Vec<U256>,
+    pub y_parity: U256,
+    pub r: U256,
+    pub s: U256,
+}
+
+#[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct AccessList {
     pub address: Address,
@@ -74,12 +94,36 @@ pub struct AccessList {
     pub storage_keys: Vec<U256>,
 }
 
+impl Serialize for TransactionEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_tuple(1)?;
+        match self {
+            TransactionEnvelope::Legacy(tx) => state.serialize_element(&tx)?,
+            _ => {
+                let mut bytes = vec![self.tx_type()];
+                let mut tx_bytes = self
+                    .bytes()
+                    .map_err(|_| serde::ser::Error::custom("hello"))?; // TODO change those
+                bytes.append(&mut tx_bytes);
+                let bytes = serde_bytes::ByteBuf::from(bytes);
+                state.serialize_element(&bytes)?;
+            }
+        }
+
+        state.end()
+    }
+}
+
 impl TransactionEnvelope {
     pub fn tx_type(&self) -> u8 {
         match self {
             TransactionEnvelope::Legacy { .. } => 0,
             TransactionEnvelope::AccessList { .. } => 1,
             TransactionEnvelope::DynamicFee { .. } => 2,
+            TransactionEnvelope::Blob { .. } => 3,
         }
     }
 
@@ -89,33 +133,21 @@ impl TransactionEnvelope {
         if tx_type > 0 {
             hasher.update([tx_type]);
         }
-        let bytes = match self {
-            TransactionEnvelope::Legacy(tx) => rlp_rs::to_bytes(tx),
-            TransactionEnvelope::AccessList(tx) => rlp_rs::to_bytes(tx),
-            TransactionEnvelope::DynamicFee(tx) => rlp_rs::to_bytes(tx),
-        }?;
+        let bytes = self.bytes()?;
         hasher.update(bytes);
         Ok(hasher.finalize().into())
     }
 
-    pub fn as_bytes(&self) -> Result<Vec<u8>, RlpError> {
+    fn bytes(&self) -> Result<Vec<u8>, RlpError> {
         match self {
             TransactionEnvelope::Legacy(tx) => rlp_rs::to_bytes(tx),
-            TransactionEnvelope::AccessList(tx) => {
-                let mut bytes = vec![self.tx_type()];
-                bytes.append(&mut rlp_rs::to_bytes(tx)?);
-                let rlp = RecursiveBytes::Bytes(bytes).into_rlp();
-                pack_rlp(rlp)
-            }
-            TransactionEnvelope::DynamicFee(tx) => {
-                let mut bytes = vec![self.tx_type()];
-                bytes.append(&mut rlp_rs::to_bytes(tx)?);
-                let rlp = RecursiveBytes::Bytes(bytes).into_rlp();
-                pack_rlp(rlp)
-            }
+            TransactionEnvelope::AccessList(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::DynamicFee(tx) => rlp_rs::to_bytes(tx),
+            TransactionEnvelope::Blob(tx) => rlp_rs::to_bytes(tx),
         }
     }
 
+    // TODO implement Deserialize
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
         let mut rlp = unpack_rlp(bytes)?;
         let res = Self::from_raw_rlp(&mut rlp)?;
@@ -127,28 +159,29 @@ impl TransactionEnvelope {
 
     /// decode an rlp encoded transaction with an expected tx_type
     fn decode_transaction(rlp: &mut Rlp, tx_type: u8) -> Result<Self, RlpError> {
+        // TODO could we use tx_type here ? Maybe using an enum instead of a num
         let tx = match tx_type {
             0 => TransactionEnvelope::Legacy(TransactionLegacy::deserialize(rlp)?),
             1 => TransactionEnvelope::AccessList(TransactionAccessList::deserialize(rlp)?),
             2 => TransactionEnvelope::DynamicFee(TransactionDynamicFee::deserialize(rlp)?),
+            3 => TransactionEnvelope::Blob(TransactionBlob::deserialize(rlp)?),
             _ => return Err(RlpError::InvalidBytes),
         };
 
         Ok(tx)
     }
 
-    /// careful, this function does not perform any suffix data check
     pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
         let tx_type = match rlp.get(0) {
             Some(RecursiveBytes::Nested(_)) => 0,
             Some(RecursiveBytes::Bytes(bytes)) => {
-                let tx_type = match bytes.first().ok_or(RlpError::MissingBytes)? {
-                    1 => 1,
-                    2 => 2,
-                    _ => return Err(RlpError::InvalidBytes),
-                };
+                let tx_type = *bytes.first().ok_or(RlpError::MissingBytes)?;
+                if tx_type > 3 {
+                    // TODO brittle
+                    return Err(RlpError::InvalidBytes);
+                }
 
-                // necessary to do it because we just unwrapped the nested structure
+                // check suffix
                 if rlp.get(1).is_some() {
                     return Err(RlpError::InvalidLength);
                 }
@@ -162,24 +195,10 @@ impl TransactionEnvelope {
 
         Self::decode_transaction(rlp, tx_type)
     }
-
-    pub fn legacy() -> Self {
-        todo!()
-    }
-
-    pub fn dynamic_fee() -> Self {
-        todo!()
-    }
-
-    pub fn access_list() -> Self {
-        todo!()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use rlp_rs::from_bytes;
-
     use super::*;
 
     #[test]
@@ -196,12 +215,8 @@ mod tests {
             s: [1; 32].into(),
         };
 
-        let tx_rlp = rlp_rs::to_bytes(&tx).unwrap();
-
         let tx = TransactionEnvelope::Legacy(tx);
-        let serialized = tx.as_bytes().unwrap();
-
-        assert_eq!(serialized, tx_rlp);
+        let serialized = rlp_rs::to_bytes(&tx).unwrap();
 
         #[allow(clippy::identity_op)]
         let size: usize = 8 + 32 + 8 + 20 + 32 + 0 + 32 * 3 + 9;
@@ -251,7 +266,7 @@ mod tests {
             s: [1; 32].into(),
         });
 
-        let serialized = tx.as_bytes().unwrap();
+        let serialized = rlp_rs::to_bytes(&tx).unwrap();
 
         #[allow(clippy::identity_op)]
         let size: usize =
@@ -289,7 +304,8 @@ mod tests {
             bytes.extend_from_slice(&[1; 32]);
         }
 
-        assert_eq!(serialized, bytes);
+        assert_eq!(TransactionEnvelope::from_bytes(&bytes).unwrap(), tx);
+        assert_eq!(bytes, serialized);
     }
 
     #[test]
@@ -310,7 +326,7 @@ mod tests {
         };
         let tx_envelope = TransactionEnvelope::DynamicFee(tx.clone());
 
-        let mut serialized = tx_envelope.as_bytes().unwrap();
+        let mut serialized = rlp_rs::to_bytes(&tx_envelope).unwrap();
 
         let size: usize =
             1 + 32 + 1 + 8 + 1 + 32 + 1 + 32 + 1 + 8 + 1 + 20 + 1 + 32 + 1 + 1 + (1 + 32) * 3;
@@ -353,7 +369,7 @@ mod tests {
             serialized.remove(0); // remove len prefix & tx_type
         }
 
-        let deserialized: TransactionDynamicFee = from_bytes(&serialized).unwrap();
+        let deserialized: TransactionDynamicFee = rlp_rs::from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);
     }
 
