@@ -4,7 +4,6 @@ use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
-// TODO implement Serialize
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default, Serialize)]
 pub struct Block {
     pub header: Header,
@@ -113,108 +112,62 @@ impl CommonHeader {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-#[serde(untagged)]
-pub enum Header {
-    Legacy {
-        parent_hash: U256,
-        uncle_hash: U256,
-        coinbase: Address,
-        state_root: U256,
-        tx_root: U256,
-        receipt_hash: U256,
-        bloom: Bloom,
-        difficulty: U256,
-        number: U256,
-        gas_limit: u64,
-        gas_used: u64,
-        time: u64,
-        #[serde(with = "serde_bytes")]
-        extra: Vec<u8>,
-        mix_digest: U256,
-        nonce: Nonce,
-    },
+macro_rules! define_header {
+    (
+        $(
+            $name:ident {
+                $($extra_field:ident : $extra_type:ty),* $(,)?
+            }
+        ),* $(,)?
+    ) => {
+        #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+        #[serde(untagged)]
+        pub enum Header {
+            $(
+                $name {
+                    parent_hash: U256,
+                    uncle_hash: U256,
+                    coinbase: Address,
+                    state_root: U256,
+                    tx_root: U256,
+                    receipt_hash: U256,
+                    bloom: Bloom,
+                    difficulty: U256,
+                    number: U256,
+                    gas_limit: u64,
+                    gas_used: u64,
+                    time: u64,
+                    #[serde(with = "serde_bytes")]
+                    extra: Vec<u8>,
+                    mix_digest: U256,
+                    nonce: Nonce,
+                    $($extra_field: $extra_type),*
+                },
+            )*
+        }
+    };
+}
+
+// Use the macro to define the Header enum with all variants
+define_header! {
+    Legacy {},
     London {
-        parent_hash: U256,
-        uncle_hash: U256,
-        coinbase: Address,
-        state_root: U256,
-        tx_root: U256,
-        receipt_hash: U256,
-        bloom: Bloom,
-        difficulty: U256,
-        number: U256,
-        gas_limit: u64,
-        gas_used: u64,
-        time: u64,
-        #[serde(with = "serde_bytes")]
-        extra: Vec<u8>,
-        mix_digest: U256,
-        nonce: Nonce,
-        base_fee: U256,
+        base_fee: U256
     },
     Shanghai {
-        parent_hash: U256,
-        uncle_hash: U256,
-        coinbase: Address,
-        state_root: U256,
-        tx_root: U256,
-        receipt_hash: U256,
-        bloom: Bloom,
-        difficulty: U256,
-        number: U256,
-        gas_limit: u64,
-        gas_used: u64,
-        time: u64,
-        #[serde(with = "serde_bytes")]
-        extra: Vec<u8>,
-        mix_digest: U256,
-        nonce: Nonce,
         base_fee: U256,
-        withdrawal_root: U256,
+        withdrawal_root: U256
     },
     Cancun {
-        parent_hash: U256,
-        uncle_hash: U256,
-        coinbase: Address,
-        state_root: U256,
-        tx_root: U256,
-        receipt_hash: U256,
-        bloom: Bloom,
-        difficulty: U256,
-        number: U256,
-        gas_limit: u64,
-        gas_used: u64,
-        time: u64,
-        #[serde(with = "serde_bytes")]
-        extra: Vec<u8>,
-        mix_digest: U256,
-        nonce: Nonce,
         base_fee: U256,
         withdrawal_root: U256,
         blob_gas_used: u64,
         excess_blob_gas: u64,
-        parent_beacon_block_root: U256,
+        parent_beacon_block_root: U256
     },
     Unknown {
-        parent_hash: U256,
-        uncle_hash: U256,
-        coinbase: Address,
-        state_root: U256,
-        tx_root: U256,
-        receipt_hash: U256,
-        bloom: Bloom,
-        difficulty: U256,
-        number: U256,
-        gas_limit: u64,
-        gas_used: u64,
-        time: u64,
-        #[serde(with = "serde_bytes")]
-        extra: Vec<u8>,
-        mix_digest: U256,
-        nonce: Nonce,
-        rest: Vec<Vec<u8>>,
-    },
+        rest: Vec<Vec<u8>>
+    }
 }
 
 impl Default for Header {
