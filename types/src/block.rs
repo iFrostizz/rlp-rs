@@ -2,7 +2,9 @@ use crate::primitives::{Address, Bloom, Nonce, U256};
 use crate::TransactionEnvelope;
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 
+// TODO implement Serialize
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub struct Block {
     pub header: Header,
@@ -12,17 +14,31 @@ pub struct Block {
 
 impl Block {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        let rlp_iter = &mut Self::before_header(bytes)?;
+        let header = Self::header_from_rlp(rlp_iter, false)?;
+        Self::after_header(rlp_iter, header)
+    }
+
+    pub fn unknown_from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        let rlp_iter = &mut Self::before_header(bytes)?;
+        let header = Self::header_from_rlp(rlp_iter, true)?;
+        Self::after_header(rlp_iter, header)
+    }
+
+    pub fn before_header(bytes: &[u8]) -> Result<impl Iterator<Item = Rlp>, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
         let rlp_iter = &mut raw_rlp.into_iter();
         let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
 
         let flat_rlp = rlp_inner.flatten_nested().ok_or(RlpError::ExpectedList)?;
-        let rlp_iter = &mut flat_rlp.into_iter();
+        Ok(flat_rlp.into_iter())
+    }
 
-        let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
-        let header = Header::from_raw_rlp(header_rlp)?;
-
+    pub fn after_header(
+        rlp_iter: &mut impl Iterator<Item = Rlp>,
+        header: Header,
+    ) -> Result<Self, RlpError> {
         let txs_rlp = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
         let transaction_iter = txs_rlp
             .flatten_nested()
@@ -48,6 +64,37 @@ impl Block {
             transactions,
             uncles,
         })
+    }
+
+    fn header_from_rlp(
+        rlp_iter: &mut impl Iterator<Item = Rlp>,
+        unknown: bool,
+    ) -> Result<Header, RlpError> {
+        let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
+
+        if unknown {
+            Header::unknown_from_raw_rlp(header_rlp)
+        } else {
+            Header::from_raw_rlp(header_rlp)
+        }
+    }
+
+    pub fn hash(&self) -> Result<[u8; 32], RlpError> {
+        let bytes = match &self.header {
+            Header::Legacy(header) => rlp_rs::to_bytes(header),
+            Header::London(header) => rlp_rs::to_bytes(header),
+            Header::Shanghai(header) => rlp_rs::to_bytes(header),
+            Header::Cancun(header) => rlp_rs::to_bytes(header),
+            Header::Unknown(header) => rlp_rs::to_bytes(header),
+        }?;
+        // TODO #[serde(flatten)] but it seems to be transforming the structure into a map.
+        let rlp = rlp_rs::unpack_rlp(&bytes)?
+            .flatten_nested()
+            .ok_or(RlpError::ExpectedList)?;
+        let bytes = rlp_rs::pack_rlp(rlp)?;
+        let mut hasher = Keccak256::new();
+        hasher.update(bytes);
+        Ok(hasher.finalize().into())
     }
 }
 
@@ -79,49 +126,75 @@ impl CommonHeader {
 
 #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum Header {
-    Legacy {
-        common: CommonHeader,
-    },
-    London {
-        common: CommonHeader,
-        base_fee: U256,
-    },
-    Shanghai {
-        common: CommonHeader,
-        base_fee: U256,
-        withdrawal_root: U256,
-    },
-    Cancun {
-        common: CommonHeader,
-        base_fee: U256,
-        withdrawal_root: U256,
-        blob_gas_used: u64,
-        excess_blob_gas: u64,
-        parent_beacon_block_root: U256,
-    },
-    Unknown {
-        common: CommonHeader,
-        rest: Vec<Vec<u8>>,
-    },
+    // TODO we should probably not encode the variant name in this case
+    Legacy(LegacyHeader),
+    London(LondonHeader),
+    Shanghai(ShanghaiHeader),
+    Cancun(CancunHeader),
+    Unknown(UnknownHeader),
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+pub struct LegacyHeader {
+    pub common: CommonHeader,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+pub struct LondonHeader {
+    pub common: CommonHeader,
+    pub base_fee: U256,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+pub struct ShanghaiHeader {
+    pub common: CommonHeader,
+    pub base_fee: U256,
+    pub withdrawal_root: U256,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+pub struct CancunHeader {
+    pub common: CommonHeader,
+    pub base_fee: U256,
+    pub withdrawal_root: U256,
+    pub blob_gas_used: u64,
+    pub excess_blob_gas: u64,
+    pub parent_beacon_block_root: U256,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+pub struct UnknownHeader {
+    pub common: CommonHeader,
+    pub rest: Vec<Vec<u8>>,
 }
 
 impl Default for Header {
     fn default() -> Self {
-        Self::Legacy {
+        Self::Legacy(LegacyHeader {
             common: Default::default(),
-        }
+        })
     }
 }
 
 impl Header {
     pub fn common(&self) -> &CommonHeader {
         match self {
-            Header::Legacy { common }
-            | Header::London { common, .. }
-            | Header::Shanghai { common, .. }
-            | Header::Cancun { common, .. }
-            | Header::Unknown { common, .. } => common,
+            Header::Legacy(LegacyHeader { common })
+            | Header::London(LondonHeader { common, .. })
+            | Header::Shanghai(ShanghaiHeader { common, .. })
+            | Header::Cancun(CancunHeader { common, .. })
+            | Header::Unknown(UnknownHeader { common, .. }) => common,
         }
+    }
+
+    fn common_from_raw_rlp(rlp: &mut Rlp) -> Result<CommonHeader, RlpError> {
+        let common_fields = CommonHeader::fields();
+        let common_rec = (0..common_fields)
+            .map(|_| rlp.pop_front().ok_or(RlpError::MissingBytes))
+            .collect::<Result<_, RlpError>>()?;
+        let nested = RecursiveBytes::Nested(common_rec);
+        let common_rlp = &mut Rlp::new_unary(nested);
+        CommonHeader::deserialize(common_rlp)
     }
 
     pub fn from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
@@ -138,56 +211,62 @@ impl Header {
             return Err(RlpError::InvalidBytes);
         }
 
-        let common_rec = (0..common_fields)
-            .map(|_| rlp.pop_front().ok_or(RlpError::MissingBytes))
-            .collect::<Result<_, RlpError>>()?;
-        let nested = RecursiveBytes::Nested(common_rec);
-        let common_rlp = &mut Rlp::new_unary(nested);
-        let common = CommonHeader::deserialize(common_rlp)?;
+        let common = Self::common_from_raw_rlp(&mut rlp)?;
 
-        let header = match fields {
-            15 => Header::Legacy { common },
-            16 | 17 | 20 => {
-                let base_fee = <U256>::deserialize(
-                    &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                )
-                .map_err(|_| RlpError::MissingBytes)?;
-
-                if fields == london_fields {
-                    Header::London { common, base_fee }
-                } else {
-                    let withdrawal_root = <U256>::deserialize(
-                        &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                    )
-                    .map_err(|_| RlpError::MissingBytes)?;
-
-                    if fields == shanghai_fields {
-                        Header::Shanghai {
-                            common,
-                            base_fee,
-                            withdrawal_root,
-                        }
-                    } else {
-                        assert_eq!(fields, cancun_fields);
-                        let blob_gas_used = u64::deserialize(
+        match fields {
+            15 | 16 | 17 | 20 => {
+                let header = match fields {
+                    15 => Header::Legacy(LegacyHeader { common }),
+                    16 | 17 | 20 => {
+                        let base_fee = <U256>::deserialize(
                             &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                        )?;
-                        let excess_blob_gas = u64::deserialize(
-                            &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                        )?;
-                        let parent_beacon_block_root = U256::deserialize(
-                            &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
-                        )?;
+                        )
+                        .map_err(|_| RlpError::MissingBytes)?;
 
-                        Header::Cancun {
-                            common,
-                            base_fee,
-                            withdrawal_root,
-                            blob_gas_used,
-                            excess_blob_gas,
-                            parent_beacon_block_root,
+                        if fields == london_fields {
+                            Header::London(LondonHeader { common, base_fee })
+                        } else {
+                            let withdrawal_root = <U256>::deserialize(
+                                &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                            )
+                            .map_err(|_| RlpError::MissingBytes)?;
+
+                            if fields == shanghai_fields {
+                                Header::Shanghai(ShanghaiHeader {
+                                    common,
+                                    base_fee,
+                                    withdrawal_root,
+                                })
+                            } else {
+                                assert_eq!(fields, cancun_fields);
+                                let blob_gas_used = u64::deserialize(
+                                    &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                                )?;
+                                let excess_blob_gas = u64::deserialize(
+                                    &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                                )?;
+                                let parent_beacon_block_root = U256::deserialize(
+                                    &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
+                                )?;
+
+                                Header::Cancun(CancunHeader {
+                                    common,
+                                    base_fee,
+                                    withdrawal_root,
+                                    blob_gas_used,
+                                    excess_blob_gas,
+                                    parent_beacon_block_root,
+                                })
+                            }
                         }
                     }
+                    _ => unreachable!(),
+                };
+
+                if rlp.is_empty() {
+                    Ok(header)
+                } else {
+                    Err(RlpError::TrailingBytes)
                 }
             }
             _ => {
@@ -195,11 +274,31 @@ impl Header {
                     .into_iter()
                     .map(pack_rlp)
                     .collect::<Result<Vec<Vec<u8>>, _>>()?;
-                Header::Unknown { common, rest }
+                Ok(Header::Unknown(UnknownHeader { common, rest }))
             }
-        };
+        }
+    }
 
-        Ok(header)
+    // TODO it would be better to pass in a mutable ref so we can check for bytes left
+    pub fn unknown_from_raw_rlp(mut rlp: Rlp) -> Result<Self, RlpError> {
+        let rlp = &mut rlp;
+        let mut rlp = rlp.flatten_nested().ok_or(RlpError::MissingBytes)?;
+
+        let fields = rlp.len();
+        let common_fields = CommonHeader::fields();
+
+        if fields < common_fields {
+            return Err(RlpError::InvalidBytes);
+        }
+
+        let common = Self::common_from_raw_rlp(&mut rlp)?;
+
+        let rest = rlp
+            .into_iter()
+            .map(pack_rlp)
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+
+        Ok(Header::Unknown(UnknownHeader { common, rest }))
     }
 }
 
@@ -219,7 +318,7 @@ mod tests {
     fn decode_legacy_block() {
         let bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::Legacy { common } = block.header else {
+        let Header::Legacy(LegacyHeader { common }) = block.header else {
             panic!("invalid block header kind");
         };
 
@@ -325,7 +424,7 @@ mod tests {
     fn decode_1559_block() {
         let bytes = hex::decode("f9030bf901fea083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4843b9aca00f90106f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b8a302f8a0018080843b9aca008301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000080a0fe38ca4e44a30002ac54af7cf922a6ac2ba11b7d22f548e8ecb3f51f41cb31b0a06de6a5cbae13c0c856e33acf021b51819636cfc009d39eafb9f606d546e305a8c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::London { common, base_fee } = block.header else {
+        let Header::London(LondonHeader { common, base_fee }) = block.header else {
             panic!("unexpected header kind");
         };
 
@@ -488,7 +587,7 @@ mod tests {
     fn decode_2718_block() {
         let bytes = hex::decode("f90319f90211a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a0e6e49996c7ec59f7a23d22b83239a60151512c65613bf84a0d7da336399ebc4aa0cafe75574d59780665a97fbfd11365c7545aa8f1abf4e5e12e8243334ef7286bb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000083020000820200832fefd882a410845506eb0796636f6f6c65737420626c6f636b206f6e20636861696ea0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f90101f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b89e01f89b01800a8301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000001a03dbacc8d0259f2508625e97fdfc57cd85fdd16e5821bc2c10bdd1a52649e8335a0476e10695b183a87b0aa292a7f4b78ef0c3fbe62aa2c42c84e1d9c3da159ef14c0").unwrap();
         let block: Block = Block::from_bytes(&bytes).unwrap();
-        let Header::Legacy { common } = block.header else {
+        let Header::Legacy(LegacyHeader { common }) = block.header else {
             panic!("unexpected header kind");
         };
 
@@ -644,5 +743,17 @@ mod tests {
                 .into(),
             }
         );
+    }
+
+    #[test]
+    fn block_hash() {
+        let block_bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
+        let block = Block::from_bytes(&block_bytes).unwrap();
+        let hash: [u8; 32] =
+            hex::decode("0a5843ac1cb04865017cb35a57b50b07084e5fcee39b5acadade33149f4fff9e")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        assert_eq!(block.hash().unwrap(), hash)
     }
 }
