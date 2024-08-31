@@ -219,17 +219,6 @@ macro_rules! common_impl {
 }
 
 impl Header {
-    pub fn common(&self) -> &CommonHeader {
-        todo!();
-        // match self {
-        //     Header::Legacy(LegacyHeader { common })
-        //     | Header::London(LondonHeader { common, .. })
-        //     | Header::Shanghai(ShanghaiHeader { common, .. })
-        //     | Header::Cancun(CancunHeader { common, .. })
-        //     | Header::Unknown(UnknownHeader { common, .. }) => common,
-        // }
-    }
-
     fn common_from_raw_rlp(rlp: &mut Rlp) -> Result<CommonHeader, RlpError> {
         let common_fields = CommonHeader::fields();
         let common_rec = (0..common_fields)
