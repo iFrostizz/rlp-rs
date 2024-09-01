@@ -580,11 +580,6 @@ mod tests {
 
             let rlp = &mut unpack_rlp(bytes).unwrap();
 
-            // assert!(matches!(
-            //     MyType::deserialize(rlp).unwrap_err(),
-            //     RlpError::TrailingBytes
-            // ));
-
             assert!(MyType::deserialize(rlp).is_err(),)
         }
     }

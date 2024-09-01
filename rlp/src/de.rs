@@ -218,7 +218,7 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
             RecursiveBytes::Nested(recs) => {
                 crate::pack_rlp(Rlp::new_unary(RecursiveBytes::Nested(recs)))?
             }
-            RecursiveBytes::EmptyList => unimplemented!(),
+            RecursiveBytes::EmptyList => unimplemented!(), // TODO
         };
 
         visitor.visit_bytes(&bytes)
