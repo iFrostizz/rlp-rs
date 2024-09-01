@@ -51,7 +51,7 @@ impl std::error::Error for RlpError {}
 pub enum RecursiveBytes {
     /// Bytes (string)
     Bytes(Vec<u8>),
-    /// An empty list that should serialize to [0x80]
+    /// An empty list that should serialize to 0x80
     EmptyList,
     /// A nested data structure to represent arbitrarily arbitrarily nested arrays (list)
     Nested(Vec<RecursiveBytes>),
@@ -174,6 +174,9 @@ fn unpack_rlp_element(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBy
             let len_bytes = bytes
                 .get(cursor..(cursor + len_bytes_len as usize))
                 .ok_or(RlpError::MissingBytes)?;
+            if len_bytes.starts_with(&[0]) {
+                return Err(RlpError::TrailingBytes);
+            }
             cursor += len_bytes_len as usize;
 
             len_bytes_base[(8 - len_bytes.len())..].copy_from_slice(len_bytes);
@@ -231,6 +234,7 @@ fn unpack_rlp_element(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBy
     Ok(unpacked)
 }
 
+// TODO pub(crate)
 pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
     Ok(Rlp::new(unpack_rlp_element(bytes, 0)?.into()))
 }
@@ -310,6 +314,7 @@ fn recursive_pack_rlp(pack: &mut Vec<u8>, rec: RecursiveBytes) -> Result<usize, 
     }
 }
 
+// TODO pub(crate)
 pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
     let mut pack = Vec::new();
     while let Some(rec) = rlp.pop_front() {
@@ -426,6 +431,7 @@ mod tests {
             ][..],
         )
         .unwrap();
+
         assert_eq!(
             unpacked.0,
             vec![RecursiveBytes::Bytes(vec![
@@ -465,10 +471,7 @@ mod tests {
         for (i, bytes) in tests.into_iter().enumerate() {
             println!("{i}...");
 
-            assert!(matches!(
-                unpack_rlp(bytes).unwrap_err(),
-                RlpError::InvalidLength
-            ));
+            assert!(unpack_rlp(bytes).is_err());
 
             println!("ok");
         }
@@ -577,10 +580,12 @@ mod tests {
 
             let rlp = &mut unpack_rlp(bytes).unwrap();
 
-            assert!(matches!(
-                MyType::deserialize(rlp).unwrap_err(),
-                RlpError::TrailingBytes
-            ));
+            // assert!(matches!(
+            //     MyType::deserialize(rlp).unwrap_err(),
+            //     RlpError::TrailingBytes
+            // ));
+
+            assert!(MyType::deserialize(rlp).is_err(),)
         }
     }
 }

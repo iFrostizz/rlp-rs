@@ -26,8 +26,12 @@ pub fn from_bytes<'a, T>(bytes: &[u8]) -> Result<T, RlpError>
 where
     T: Deserialize<'a>,
 {
-    let rlp = &mut unpack_rlp(bytes)?;
-    T::deserialize(rlp)
+    let mut rlp = unpack_rlp(bytes)?;
+    let t = T::deserialize(&mut rlp)?;
+    if !rlp.is_empty() {
+        return Err(RlpError::TrailingBytes);
+    }
+    Ok(t)
 }
 
 impl Rlp {
@@ -205,11 +209,19 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     type Error = RlpError;
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        let bytes = match self.need_next()? {
+            RecursiveBytes::Bytes(bytes) => bytes,
+            RecursiveBytes::Nested(recs) => {
+                crate::pack_rlp(Rlp::new_unary(RecursiveBytes::Nested(recs)))?
+            }
+            RecursiveBytes::EmptyList => unimplemented!(),
+        };
+
+        visitor.visit_bytes(&bytes)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -382,11 +394,20 @@ impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
         }
     }
 
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        self.deserialize_seq(visitor)
+        let rlps = (0..len)
+            .map(|_| self.need_next().map(|rec| Rlp(vec![rec].into())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rlps = rlps.into_iter().rev().collect();
+        let mut seq = Seq::new(rlps);
+        let res = visitor.visit_seq(&mut seq)?;
+        match seq.de.is_empty() {
+            true => Ok(res),
+            false => Err(RlpError::InvalidLength),
+        }
     }
 
     fn deserialize_tuple_struct<V>(
@@ -517,13 +538,33 @@ mod tests {
             )]
             .into(),
         );
+        let bools: Vec<bool> = from_rlp(rlp).unwrap();
+        assert_eq!(bools, [false, true]);
+    }
+
+    #[test]
+    fn de_tuple_bool() {
+        let rlp = &mut Rlp::new(
+            vec![
+                RecursiveBytes::Bytes(vec![0]),
+                RecursiveBytes::Bytes(vec![1]),
+            ]
+            .into(),
+        );
         let bools: [bool; 2] = from_rlp(rlp).unwrap();
         assert_eq!(bools, [false, true]);
     }
 
     #[test]
-    fn de_seq_string() {
+    fn de_tuple_string() {
         let cat_dog: [String; 2] =
+            from_bytes(&[0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
+        assert_eq!(cat_dog, ["cat", "dog"]);
+    }
+
+    #[test]
+    fn de_seq_string() {
+        let cat_dog: Vec<String> =
             from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
     }
@@ -532,7 +573,7 @@ mod tests {
     fn de_seq_cow() {
         // alternative to &str
         let cat_dog: [Cow<'_, str>; 2] =
-            from_bytes(&[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
+            from_bytes(&[0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']).unwrap();
         assert_eq!(cat_dog, ["cat", "dog"]);
     }
 
@@ -737,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn azerc() {
+    fn de_leading_serde_bytes() {
         let bytes = [193, 128];
 
         #[derive(Debug, Serialize, Deserialize)]
@@ -750,5 +791,19 @@ mod tests {
         let serialized = to_bytes(&val).unwrap();
 
         assert_eq!(serialized, bytes);
+    }
+
+    #[test]
+    fn de_leading_bytes() {
+        let bytes = [
+            185, 0, 127, 230, 96, 80, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49,
+            49, 49, 49, 49, 79, 79, 79, 49, 49, 49, 49, 49, 49, 49, 1, 0, 127, 49, 49, 49, 49, 49,
+            49, 49, 49, 49, 49, 1, 0, 127, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 0, 49,
+            49, 49, 49, 49, 1, 0, 127, 49, 49, 49, 49, 49, 49, 49, 1, 0, 0, 0, 0, 0, 0, 0, 49, 49,
+            49, 49, 49, 49, 49, 49, 1, 0, 127, 0, 49, 49, 49, 49, 49, 1, 0, 127, 49, 49, 49, 49,
+            49, 49, 49, 1, 0, 0, 0, 0, 0, 0, 0, 49, 49, 49, 49, 49, 49, 49, 49,
+        ];
+
+        assert!(crate::unpack_rlp(&bytes).is_err());
     }
 }

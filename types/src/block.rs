@@ -1,10 +1,10 @@
 use crate::primitives::{Address, Bloom, Nonce, U256};
 use crate::TransactionEnvelope;
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<TransactionEnvelope>,
@@ -12,32 +12,19 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let rlp_iter = &mut Self::before_header(bytes)?;
-        let header = Self::header_from_rlp(rlp_iter, false)?;
-        Self::after_header(rlp_iter, header)
-    }
-
     pub fn unknown_from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
-        let rlp_iter = &mut Self::before_header(bytes)?;
-        let header = Self::header_from_rlp(rlp_iter, true)?;
-        Self::after_header(rlp_iter, header)
-    }
-
-    pub fn before_header(bytes: &[u8]) -> Result<impl Iterator<Item = Rlp>, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
         let rlp_iter = &mut raw_rlp.into_iter();
         let rlp_inner = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
 
         let flat_rlp = rlp_inner.flatten_nested().ok_or(RlpError::ExpectedList)?;
-        Ok(flat_rlp.into_iter())
-    }
+        let rlp_iter = &mut flat_rlp.into_iter();
 
-    pub fn after_header(
-        rlp_iter: &mut impl Iterator<Item = Rlp>,
-        header: Header,
-    ) -> Result<Self, RlpError> {
+        let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
+
+        let header = Header::unknown_from_raw_rlp(header_rlp)?;
+
         let txs_rlp = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
         let transaction_iter = txs_rlp
             .flatten_nested()
@@ -63,19 +50,6 @@ impl Block {
             transactions,
             uncles,
         })
-    }
-
-    fn header_from_rlp(
-        rlp_iter: &mut impl Iterator<Item = Rlp>,
-        unknown: bool,
-    ) -> Result<Header, RlpError> {
-        let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
-
-        if unknown {
-            Header::unknown_from_raw_rlp(header_rlp)
-        } else {
-            Header::from_raw_rlp(header_rlp)
-        }
     }
 
     pub fn hash(&self) -> Result<[u8; 32], RlpError> {
@@ -148,7 +122,6 @@ macro_rules! define_header {
     };
 }
 
-// Use the macro to define the Header enum with all variants
 define_header! {
     Legacy {},
     London {
@@ -170,25 +143,14 @@ define_header! {
     }
 }
 
-impl Default for Header {
-    fn default() -> Self {
-        Self::Legacy {
-            parent_hash: Default::default(),
-            uncle_hash: Default::default(),
-            coinbase: Default::default(),
-            state_root: Default::default(),
-            tx_root: Default::default(),
-            receipt_hash: Default::default(),
-            bloom: Default::default(),
-            difficulty: Default::default(),
-            number: Default::default(),
-            gas_limit: Default::default(),
-            gas_used: Default::default(),
-            time: Default::default(),
-            extra: Default::default(),
-            mix_digest: Default::default(),
-            nonce: Default::default(),
-        }
+struct HeaderVisitor;
+
+impl<'de> Deserialize<'de> for Header {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(HeaderVisitor)
     }
 }
 
@@ -216,6 +178,113 @@ macro_rules! common_impl {
             $($rest)*
         }
     };
+}
+
+impl<'de> de::Visitor<'de> for HeaderVisitor {
+    type Value = Header;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a well formed RLP-encoded Header")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        macro_rules! next_el {
+            ($len:literal) => {
+                seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length($len, &self))?
+            };
+        }
+
+        let parent_hash = next_el!(0);
+        let uncle_hash = next_el!(1);
+        let coinbase = next_el!(2);
+        let state_root = next_el!(3);
+        let tx_root = next_el!(4);
+        let receipt_hash = next_el!(5);
+        let bloom = next_el!(6);
+        let difficulty = next_el!(7);
+        let number = next_el!(8);
+        let gas_limit = next_el!(9);
+        let gas_used = next_el!(10);
+        let time = next_el!(11);
+        let extra: serde_bytes::ByteBuf = next_el!(12);
+        let extra = extra.to_vec();
+        let mix_digest = next_el!(13);
+        let nonce = next_el!(14);
+
+        let common = CommonHeader {
+            parent_hash,
+            uncle_hash,
+            coinbase,
+            state_root,
+            tx_root,
+            receipt_hash,
+            bloom,
+            difficulty,
+            number,
+            gas_limit,
+            gas_used,
+            time,
+            extra,
+            mix_digest,
+            nonce,
+        };
+
+        let header = match seq.next_element()? {
+            None => common_impl!(Legacy, common),
+            Some(base_fee) => match seq.next_element()? {
+                None => common_impl!(London, common, { base_fee }),
+                Some(withdrawal_root) => match seq.next_element()? {
+                    None => common_impl!(
+                        Shanghai,
+                        common , {
+                            base_fee,
+                            withdrawal_root
+                        }
+                    ),
+                    Some(blob_gas_used) => match (seq.next_element()?, seq.next_element()?) {
+                        (Some(excess_blob_gas), Some(parent_beacon_block_root)) => {
+                            common_impl!(Cancun, common, {
+                                base_fee,
+                                withdrawal_root,
+                                blob_gas_used,
+                                excess_blob_gas,
+                                parent_beacon_block_root
+                            })
+                        }
+                        _ => return Err(de::Error::invalid_length(18, &self)),
+                    },
+                },
+            },
+        };
+
+        Ok(header)
+    }
+}
+
+impl Default for Header {
+    fn default() -> Self {
+        Self::Legacy {
+            parent_hash: Default::default(),
+            uncle_hash: Default::default(),
+            coinbase: Default::default(),
+            state_root: Default::default(),
+            tx_root: Default::default(),
+            receipt_hash: Default::default(),
+            bloom: Default::default(),
+            difficulty: Default::default(),
+            number: Default::default(),
+            gas_limit: Default::default(),
+            gas_used: Default::default(),
+            time: Default::default(),
+            extra: Default::default(),
+            mix_digest: Default::default(),
+            nonce: Default::default(),
+        }
+    }
 }
 
 impl Header {
@@ -341,11 +410,74 @@ mod tests {
         AccessList, TransactionAccessList, TransactionDynamicFee, TransactionLegacy,
     };
 
+    #[test]
+    fn decode_legacy_header() {
+        let bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
+        let mut rlp = rlp_rs::unpack_rlp(&bytes).unwrap();
+        let mut block_rlp = Rlp::new_unary(rlp.pop_front().unwrap())
+            .flatten_nested()
+            .unwrap();
+        let header_rlp = Rlp::new_unary(block_rlp.pop_front().unwrap());
+        let header_bytes = rlp_rs::pack_rlp(header_rlp).unwrap();
+        let header: Header = rlp_rs::from_bytes(&header_bytes).unwrap();
+
+        assert_eq!(
+            header,
+            Header::Legacy {
+                parent_hash: [
+                    131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
+                    66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
+                ]
+                .into(),
+                uncle_hash: [
+                    29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
+                    211, 18, 69, 27, 148, 138, 116, 19, 240, 161, 66, 253, 64, 212, 147, 71
+                ]
+                .into(),
+                coinbase: hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                state_root: hex::decode(
+                    "ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017"
+                )
+                .unwrap()
+                .try_into()
+                .unwrap(),
+                tx_root: [
+                    95, 229, 11, 38, 13, 166, 48, 128, 54, 98, 91, 133, 11, 93, 108, 237, 109, 10,
+                    159, 129, 76, 6, 136, 188, 145, 255, 183, 183, 163, 165, 75, 103
+                ]
+                .into(),
+                receipt_hash: [
+                    188, 55, 215, 151, 83, 173, 115, 138, 109, 172, 73, 33, 229, 115, 146, 241, 69,
+                    216, 136, 116, 118, 222, 63, 120, 61, 250, 126, 218, 233, 40, 62, 82
+                ]
+                .into(),
+                bloom: [0; 256].into(),
+                difficulty: 131072u64.to_be_bytes()[5..].to_vec().try_into().unwrap(),
+                number: vec![1u8].try_into().unwrap(),
+                gas_limit: 3141592,
+                gas_used: 21000,
+                time: 1426516743,
+                extra: vec![],
+                mix_digest: hex::decode(
+                    "bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498"
+                )
+                .unwrap()
+                .try_into()
+                .unwrap(),
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196].into()
+            }
+        );
+    }
+
     // https://github.com/ethereum/go-ethereum/blob/4dfc75deefd2d68fba682d089d9ae61771c19d66/core/types/block_test.go#L34
     #[test]
     fn decode_legacy_block() {
         let bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
-        let block: Block = Block::from_bytes(&bytes).unwrap();
+        // let block: Block = Block::from_bytes(&bytes).unwrap();
+        let block: Block = rlp_rs::from_bytes(&bytes).unwrap();
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -446,9 +578,72 @@ mod tests {
     }
 
     #[test]
+    fn decode_1559_header() {
+        let bytes = hex::decode("f9030bf901fea083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4843b9aca00f90106f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b8a302f8a0018080843b9aca008301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000080a0fe38ca4e44a30002ac54af7cf922a6ac2ba11b7d22f548e8ecb3f51f41cb31b0a06de6a5cbae13c0c856e33acf021b51819636cfc009d39eafb9f606d546e305a8c0").unwrap();
+        let mut rlp = rlp_rs::unpack_rlp(&bytes).unwrap();
+        let mut block_rlp = Rlp::new_unary(rlp.pop_front().unwrap())
+            .flatten_nested()
+            .unwrap();
+        let header_rlp = Rlp::new_unary(block_rlp.pop_front().unwrap());
+        let header_bytes = rlp_rs::pack_rlp(header_rlp).unwrap();
+        let header: Header = rlp_rs::from_bytes(&header_bytes).unwrap();
+
+        assert_eq!(
+            header,
+            Header::London {
+                parent_hash: [
+                    131, 202, 252, 87, 78, 31, 81, 186, 157, 192, 86, 143, 198, 23, 160, 142, 162,
+                    66, 159, 179, 132, 5, 156, 151, 47, 19, 177, 159, 161, 200, 221, 85
+                ]
+                .into(),
+                uncle_hash: [
+                    29, 204, 77, 232, 222, 199, 93, 122, 171, 133, 181, 103, 182, 204, 212, 26,
+                    211, 18, 69, 27, 148, 138, 116, 19, 240, 161, 66, 253, 64, 212, 147, 71
+                ]
+                .into(),
+                coinbase: hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                state_root: hex::decode(
+                    "ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017"
+                )
+                .unwrap()
+                .try_into()
+                .unwrap(),
+                tx_root: [
+                    95, 229, 11, 38, 13, 166, 48, 128, 54, 98, 91, 133, 11, 93, 108, 237, 109, 10,
+                    159, 129, 76, 6, 136, 188, 145, 255, 183, 183, 163, 165, 75, 103
+                ]
+                .into(),
+                receipt_hash: [
+                    188, 55, 215, 151, 83, 173, 115, 138, 109, 172, 73, 33, 229, 115, 146, 241, 69,
+                    216, 136, 116, 118, 222, 63, 120, 61, 250, 126, 218, 233, 40, 62, 82
+                ]
+                .into(),
+                bloom: [0; 256].into(),
+                difficulty: 131072u64.to_be_bytes()[5..].to_vec().try_into().unwrap(),
+                number: vec![1u8].try_into().unwrap(),
+                gas_limit: 3141592,
+                gas_used: 21000,
+                time: 1426516743,
+                extra: vec![],
+                mix_digest: hex::decode(
+                    "bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498"
+                )
+                .unwrap()
+                .try_into()
+                .unwrap(),
+                nonce: [161, 58, 90, 140, 143, 43, 177, 196].into(),
+                base_fee: vec![59, 154, 202, 0].try_into().unwrap()
+            }
+        );
+    }
+
+    #[test]
     fn decode_1559_block() {
         let bytes = hex::decode("f9030bf901fea083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4843b9aca00f90106f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b8a302f8a0018080843b9aca008301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000080a0fe38ca4e44a30002ac54af7cf922a6ac2ba11b7d22f548e8ecb3f51f41cb31b0a06de6a5cbae13c0c856e33acf021b51819636cfc009d39eafb9f606d546e305a8c0").unwrap();
-        let block: Block = Block::from_bytes(&bytes).unwrap();
+        let block: Block = rlp_rs::from_bytes(&bytes).unwrap();
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -611,7 +806,7 @@ mod tests {
     #[test]
     fn decode_2718_block() {
         let bytes = hex::decode("f90319f90211a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a0e6e49996c7ec59f7a23d22b83239a60151512c65613bf84a0d7da336399ebc4aa0cafe75574d59780665a97fbfd11365c7545aa8f1abf4e5e12e8243334ef7286bb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000083020000820200832fefd882a410845506eb0796636f6f6c65737420626c6f636b206f6e20636861696ea0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f90101f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b89e01f89b01800a8301e24194095e7baea6a6c7c4c2dfeb977efac326af552d878080f838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000001a03dbacc8d0259f2508625e97fdfc57cd85fdd16e5821bc2c10bdd1a52649e8335a0476e10695b183a87b0aa292a7f4b78ef0c3fbe62aa2c42c84e1d9c3da159ef14c0").unwrap();
-        let block: Block = Block::from_bytes(&bytes).unwrap();
+        let block: Block = rlp_rs::from_bytes(&bytes).unwrap();
 
         let coinbase = hex::decode("8888f1f195afa192cfee860698584c030f4c9db1")
             .unwrap()
@@ -770,7 +965,7 @@ mod tests {
     #[test]
     fn block_hash() {
         let block_bytes = hex::decode("f90260f901f9a083cafc574e1f51ba9dc0568fc617a08ea2429fb384059c972f13b19fa1c8dd55a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017a05fe50b260da6308036625b850b5d6ced6d0a9f814c0688bc91ffb7b7a3a54b67a0bc37d79753ad738a6dac4921e57392f145d8887476de3f783dfa7edae9283e52b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001832fefd8825208845506eb0780a0bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff49888a13a5a8c8f2bb1c4f861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1c0").unwrap();
-        let block = Block::from_bytes(&block_bytes).unwrap();
+        let block: Block = rlp_rs::from_bytes(&block_bytes).unwrap();
         let hash: [u8; 32] =
             hex::decode("0a5843ac1cb04865017cb35a57b50b07084e5fcee39b5acadade33149f4fff9e")
                 .unwrap()
@@ -783,7 +978,7 @@ mod tests {
     fn block_serde() {
         let block = Block::default();
         let bytes = rlp_rs::to_bytes(&block).unwrap();
-        let block2 = Block::from_bytes(&bytes).unwrap();
+        let block2 = rlp_rs::from_bytes(&bytes).unwrap();
         assert_eq!(block, block2);
     }
 }

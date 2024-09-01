@@ -22,7 +22,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     };
     let bytes = to_bytes(&header).unwrap();
 
-    c.bench_function("100 legacy block headers", |b| {
+    c.bench_function("100 legacy block headers decoding", |b| {
         b.iter(|| {
             for _ in 0..100 {
                 let _: CommonHeader = from_bytes(&bytes).unwrap();
