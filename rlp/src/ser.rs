@@ -666,4 +666,21 @@ mod tests {
         let bytes = to_bytes(&num).unwrap();
         assert_eq!(bytes, vec![0x80]);
     }
+
+    #[test]
+    fn ser_tuple_string() {
+        let cat_dog: [&str; 2] = ["cat", "dog"];
+        let bytes = to_bytes(&cat_dog).unwrap();
+        assert_eq!(&bytes, &[0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']);
+    }
+
+    #[test]
+    fn ser_vec_string() {
+        let cat_dog = vec!["cat", "dog"];
+        let bytes = to_bytes(&cat_dog).unwrap();
+        assert_eq!(
+            &bytes,
+            &[0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g']
+        );
+    }
 }
