@@ -1,5 +1,5 @@
 use crate::primitives::{Address, Bloom, Nonce, U256};
-use crate::TransactionEnvelope;
+use crate::{TransactionEnvelope, B32};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{de, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
@@ -62,12 +62,12 @@ impl Block {
 
 #[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq, Clone, Default)]
 pub struct CommonHeader {
-    pub parent_hash: U256,
-    pub uncle_hash: U256,
+    pub parent_hash: B32,
+    pub uncle_hash: B32,
     pub coinbase: Address,
-    pub state_root: U256,
-    pub tx_root: U256,
-    pub receipt_hash: U256,
+    pub state_root: B32,
+    pub tx_root: B32,
+    pub receipt_hash: B32,
     pub bloom: Bloom,
     pub difficulty: U256,
     pub number: U256,
@@ -76,7 +76,7 @@ pub struct CommonHeader {
     pub time: u64,
     #[serde(with = "serde_bytes")]
     pub extra: Vec<u8>,
-    pub mix_digest: U256,
+    pub mix_digest: B32,
     pub nonce: Nonce,
 }
 
@@ -99,12 +99,12 @@ macro_rules! define_header {
         pub enum Header {
             $(
                 $name {
-                    parent_hash: U256,
-                    uncle_hash: U256,
+                    parent_hash: B32,
+                    uncle_hash: B32,
                     coinbase: Address,
-                    state_root: U256,
-                    tx_root: U256,
-                    receipt_hash: U256,
+                    state_root: B32,
+                    tx_root: B32,
+                    receipt_hash: B32,
                     bloom: Bloom,
                     difficulty: U256,
                     number: U256,
@@ -113,7 +113,7 @@ macro_rules! define_header {
                     time: u64,
                     #[serde(with = "serde_bytes")]
                     extra: Vec<u8>,
-                    mix_digest: U256,
+                    mix_digest: B32,
                     nonce: Nonce,
                     $($extra_field: $extra_type),*
                 },
@@ -129,17 +129,169 @@ define_header! {
     },
     Shanghai {
         base_fee: U256,
-        withdrawal_root: U256
+        withdrawal_root: B32
     },
     Cancun {
         base_fee: U256,
-        withdrawal_root: U256,
+        withdrawal_root: B32,
         blob_gas_used: u64,
         excess_blob_gas: u64,
-        parent_beacon_block_root: U256
+        parent_beacon_block_root: B32
     },
     Unknown {
         rest: Vec<Vec<u8>>
+    }
+}
+
+impl Header {
+    pub fn parent_hash(&self) -> &B32 {
+        match self {
+            Header::Legacy { parent_hash, .. }
+            | Header::London { parent_hash, .. }
+            | Header::Shanghai { parent_hash, .. }
+            | Header::Cancun { parent_hash, .. }
+            | Header::Unknown { parent_hash, .. } => parent_hash,
+        }
+    }
+
+    pub fn uncle_hash(&self) -> &B32 {
+        match self {
+            Header::Legacy { uncle_hash, .. }
+            | Header::London { uncle_hash, .. }
+            | Header::Shanghai { uncle_hash, .. }
+            | Header::Cancun { uncle_hash, .. }
+            | Header::Unknown { uncle_hash, .. } => uncle_hash,
+        }
+    }
+
+    pub fn coinbase(&self) -> &Address {
+        match self {
+            Header::Legacy { coinbase, .. }
+            | Header::London { coinbase, .. }
+            | Header::Shanghai { coinbase, .. }
+            | Header::Cancun { coinbase, .. }
+            | Header::Unknown { coinbase, .. } => coinbase,
+        }
+    }
+
+    pub fn state_root(&self) -> &B32 {
+        match self {
+            Header::Legacy { state_root, .. }
+            | Header::London { state_root, .. }
+            | Header::Shanghai { state_root, .. }
+            | Header::Cancun { state_root, .. }
+            | Header::Unknown { state_root, .. } => state_root,
+        }
+    }
+
+    pub fn tx_root(&self) -> &B32 {
+        match self {
+            Header::Legacy { tx_root, .. }
+            | Header::London { tx_root, .. }
+            | Header::Shanghai { tx_root, .. }
+            | Header::Cancun { tx_root, .. }
+            | Header::Unknown { tx_root, .. } => tx_root,
+        }
+    }
+
+    pub fn receipt_hash(&self) -> &B32 {
+        match self {
+            Header::Legacy { receipt_hash, .. }
+            | Header::London { receipt_hash, .. }
+            | Header::Shanghai { receipt_hash, .. }
+            | Header::Cancun { receipt_hash, .. }
+            | Header::Unknown { receipt_hash, .. } => receipt_hash,
+        }
+    }
+
+    pub fn bloom(&self) -> &Bloom {
+        match self {
+            Header::Legacy { bloom, .. }
+            | Header::London { bloom, .. }
+            | Header::Shanghai { bloom, .. }
+            | Header::Cancun { bloom, .. }
+            | Header::Unknown { bloom, .. } => bloom,
+        }
+    }
+
+    pub fn difficulty(&self) -> &U256 {
+        match self {
+            Header::Legacy { difficulty, .. }
+            | Header::London { difficulty, .. }
+            | Header::Shanghai { difficulty, .. }
+            | Header::Cancun { difficulty, .. }
+            | Header::Unknown { difficulty, .. } => difficulty,
+        }
+    }
+
+    pub fn number(&self) -> &U256 {
+        match self {
+            Header::Legacy { number, .. }
+            | Header::London { number, .. }
+            | Header::Shanghai { number, .. }
+            | Header::Cancun { number, .. }
+            | Header::Unknown { number, .. } => number,
+        }
+    }
+
+    pub fn gas_limit(&self) -> &u64 {
+        match self {
+            Header::Legacy { gas_limit, .. }
+            | Header::London { gas_limit, .. }
+            | Header::Shanghai { gas_limit, .. }
+            | Header::Cancun { gas_limit, .. }
+            | Header::Unknown { gas_limit, .. } => gas_limit,
+        }
+    }
+
+    pub fn gas_used(&self) -> &u64 {
+        match self {
+            Header::Legacy { gas_used, .. }
+            | Header::London { gas_used, .. }
+            | Header::Shanghai { gas_used, .. }
+            | Header::Cancun { gas_used, .. }
+            | Header::Unknown { gas_used, .. } => gas_used,
+        }
+    }
+
+    pub fn time(&self) -> &u64 {
+        match self {
+            Header::Legacy { time, .. }
+            | Header::London { time, .. }
+            | Header::Shanghai { time, .. }
+            | Header::Cancun { time, .. }
+            | Header::Unknown { time, .. } => time,
+        }
+    }
+
+    pub fn extra(&self) -> &Vec<u8> {
+        match self {
+            Header::Legacy { extra, .. }
+            | Header::London { extra, .. }
+            | Header::Shanghai { extra, .. }
+            | Header::Cancun { extra, .. }
+            | Header::Unknown { extra, .. } => extra,
+        }
+    }
+
+    pub fn mix_digest(&self) -> &B32 {
+        match self {
+            Header::Legacy { mix_digest, .. }
+            | Header::London { mix_digest, .. }
+            | Header::Shanghai { mix_digest, .. }
+            | Header::Cancun { mix_digest, .. }
+            | Header::Unknown { mix_digest, .. } => mix_digest,
+        }
+    }
+
+    pub fn nonce(&self) -> &Nonce {
+        match self {
+            Header::Legacy { nonce, .. }
+            | Header::London { nonce, .. }
+            | Header::Shanghai { nonce, .. }
+            | Header::Cancun { nonce, .. }
+            | Header::Unknown { nonce, .. } => nonce,
+        }
     }
 }
 
@@ -328,7 +480,7 @@ impl Header {
                             // Header::London(LondonHeader { common, base_fee })
                             common_impl!(London, common, { base_fee })
                         } else {
-                            let withdrawal_root = <U256>::deserialize(
+                            let withdrawal_root = <B32>::deserialize(
                                 &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                             )
                             .map_err(|_| RlpError::MissingBytes)?;
@@ -343,7 +495,7 @@ impl Header {
                                 let excess_blob_gas = u64::deserialize(
                                     &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                                 )?;
-                                let parent_beacon_block_root = U256::deserialize(
+                                let parent_beacon_block_root = B32::deserialize(
                                     &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                                 )?;
 
