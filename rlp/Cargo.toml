@@ -16,5 +16,8 @@ serde_repr = "0.1.19"
 name = "nested_lists"
 harness = false
 
+[features]
+fuzzing = []
+
 [profile.bench]
 debug = true
