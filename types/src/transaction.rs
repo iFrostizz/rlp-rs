@@ -2,7 +2,7 @@ use crate::primitives::{Address, U256};
 #[cfg(feature = "fuzzing")]
 use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use rlp_rs::{unpack_rlp, RecursiveBytes, Rlp, RlpError};
-use serde::{de, ser::SerializeTuple, Deserialize, Serialize};
+use serde::{ser::SerializeTuple, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
 #[cfg_attr(feature = "fuzzing", derive(Arbitrary))]
@@ -117,39 +117,6 @@ impl Serialize for TransactionEnvelope {
     }
 }
 
-struct TransactionVisitor;
-
-impl<'de> Deserialize<'de> for TransactionEnvelope {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_any(TransactionVisitor)
-    }
-}
-
-impl<'de> de::Visitor<'de> for TransactionVisitor {
-    type Value = TransactionEnvelope;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a well formed RLP-encoded TransactionEnvelope")
-    }
-
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        let mut rlp =
-            unpack_rlp(v).map_err(|_| de::Error::invalid_value(de::Unexpected::Bytes(v), &self))?;
-        let res = TransactionEnvelope::from_raw_rlp(&mut rlp)
-            .map_err(|err| de::Error::custom(format!("invalid decoding: {:?}", err)))?;
-        match rlp.is_empty() {
-            true => Ok(res),
-            false => Err(de::Error::invalid_length(rlp.len(), &"no length left")),
-        }
-    }
-}
-
 impl TransactionEnvelope {
     // TODO use an enum
     pub fn tx_type(&self) -> u8 {
@@ -181,6 +148,15 @@ impl TransactionEnvelope {
         }
     }
 
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        let mut rlp = unpack_rlp(bytes)?;
+        let res = Self::from_raw_rlp(&mut rlp)?;
+        match rlp.is_empty() {
+            true => Ok(res),
+            false => Err(RlpError::InvalidLength),
+        }
+    }
+
     /// decode an rlp encoded transaction with an expected tx_type
     fn decode_transaction(rlp: &mut Rlp, tx_type: u8) -> Result<Self, RlpError> {
         // TODO could we use tx_type here ? Maybe using an enum instead of a num
@@ -196,6 +172,7 @@ impl TransactionEnvelope {
     }
 
     pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
+        dbg!(&rlp);
         let (tx_type, tx_rlp) = match rlp.pop_front() {
             Some(RecursiveBytes::Bytes(bytes)) => {
                 let tx_type = *bytes.first().ok_or(RlpError::MissingBytes)?;
@@ -204,11 +181,11 @@ impl TransactionEnvelope {
                     return Err(RlpError::InvalidBytes);
                 }
 
-                let Some(nested) = rlp.pop_front() else {
-                    return Err(RlpError::ExpectedList);
-                };
+                if rlp.get(1).is_some() {
+                    return Err(RlpError::InvalidLength);
+                }
 
-                (tx_type, &mut Rlp::new_unary(nested))
+                (tx_type, &mut unpack_rlp(&bytes[1..])?)
             }
             None => return Err(RlpError::InvalidBytes),
             Some(nest) => (0, &mut Rlp::new_unary(nest)),
@@ -270,7 +247,7 @@ mod tests {
 
         assert_eq!(bytes, serialized);
 
-        let deserialized: TransactionEnvelope = rlp_rs::from_bytes(&serialized).unwrap();
+        let deserialized = TransactionEnvelope::from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, tx);
     }
 
@@ -330,7 +307,7 @@ mod tests {
 
         assert_eq!(bytes, serialized);
 
-        let tx2: TransactionEnvelope = rlp_rs::from_bytes(&serialized).unwrap();
+        let tx2 = TransactionEnvelope::from_bytes(&serialized).unwrap();
         assert_eq!(tx, tx2);
     }
 
@@ -412,6 +389,6 @@ mod tests {
             170, 44, 66, 200, 78, 29, 156, 61, 161, 89, 239, 20,
         ];
 
-        assert!(rlp_rs::from_bytes::<TransactionEnvelope>(&bytes).is_err());
+        assert!(TransactionEnvelope::from_bytes(&bytes).is_err());
     }
 }

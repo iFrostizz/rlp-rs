@@ -234,7 +234,6 @@ fn unpack_rlp_element(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBy
     Ok(unpacked)
 }
 
-// TODO pub(crate)
 pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
     Ok(Rlp::new(unpack_rlp_element(bytes, 0)?.into()))
 }
@@ -314,7 +313,6 @@ fn recursive_pack_rlp(pack: &mut Vec<u8>, rec: RecursiveBytes) -> Result<usize, 
     }
 }
 
-// TODO pub(crate)
 pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
     let mut pack = Vec::new();
     while let Some(rec) = rlp.pop_front() {
