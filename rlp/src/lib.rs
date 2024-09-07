@@ -7,6 +7,35 @@ pub use de::from_bytes;
 mod ser;
 pub use ser::to_bytes;
 
+#[doc(hidden)]
+/// This low-level function is used to convert an rlp representation into bytes
+pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
+    let mut pack = Vec::new();
+    while let Some(rec) = rlp.pop_front() {
+        recursive_pack_rlp(&mut pack, rec)?;
+    }
+    Ok(pack)
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone)]
+#[doc(hidden)]
+/// Convert
+pub enum RecursiveBytes {
+    /// Bytes (string)
+    Bytes(Vec<u8>),
+    /// An empty list that should serialize to 0x80
+    EmptyList,
+    /// A nested data structure to represent arbitrarily arbitrarily nested arrays (list)
+    Nested(Vec<RecursiveBytes>),
+}
+
+#[doc(hidden)]
+/// This low-level function is used to convert bytes into an rlp representation
+pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
+    Ok(Rlp::new(unpack_rlp_element(bytes, 0)?.into()))
+}
+
 #[derive(Debug)]
 pub enum RlpError {
     MissingBytes,
@@ -45,17 +74,6 @@ impl Display for RlpError {
 }
 
 impl std::error::Error for RlpError {}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Clone)]
-pub enum RecursiveBytes {
-    /// Bytes (string)
-    Bytes(Vec<u8>),
-    /// An empty list that should serialize to 0x80
-    EmptyList,
-    /// A nested data structure to represent arbitrarily arbitrarily nested arrays (list)
-    Nested(Vec<RecursiveBytes>),
-}
 
 impl RecursiveBytes {
     #[cfg(test)]
@@ -234,10 +252,6 @@ fn unpack_rlp_element(bytes: &[u8], mut cursor: usize) -> Result<Vec<RecursiveBy
     Ok(unpacked)
 }
 
-pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
-    Ok(Rlp::new(unpack_rlp_element(bytes, 0)?.into()))
-}
-
 fn parse_num<const N: usize>(bytes: [u8; N]) -> Option<Vec<u8>> {
     bytes
         .iter()
@@ -311,14 +325,6 @@ fn recursive_pack_rlp(pack: &mut Vec<u8>, rec: RecursiveBytes) -> Result<usize, 
             Ok(len)
         }
     }
-}
-
-pub fn pack_rlp(mut rlp: Rlp) -> Result<Vec<u8>, RlpError> {
-    let mut pack = Vec::new();
-    while let Some(rec) = rlp.pop_front() {
-        recursive_pack_rlp(&mut pack, rec)?;
-    }
-    Ok(pack)
 }
 
 // https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/#examples

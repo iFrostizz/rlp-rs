@@ -19,7 +19,7 @@ impl Block {
         Ok(hasher.finalize().into())
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+    fn _from_bytes(bytes: &[u8], unknown: bool) -> Result<Self, RlpError> {
         let raw_rlp = unpack_rlp(bytes)?;
 
         let rlp_iter = &mut raw_rlp.into_iter();
@@ -29,19 +29,21 @@ impl Block {
         let rlp_iter = &mut flat_rlp.into_iter();
 
         let header_rlp = rlp_iter.next().ok_or(RlpError::MissingBytes)?;
-        let header = Header::from_raw_rlp(header_rlp)?;
+        let header = if unknown {
+            Header::unknown_from_raw_rlp(header_rlp)?
+        } else {
+            Header::from_raw_rlp(header_rlp)?
+        };
 
         let txs_rlp = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
         let transaction_iter = txs_rlp
             .flatten_nested()
             .ok_or(RlpError::MissingBytes)?
             .into_iter();
-        dbg!("aaaaaaaaa");
 
         let transactions = transaction_iter
-            .map(|mut rlp: rlp_rs::Rlp| dbg!(TransactionEnvelope::from_raw_rlp(&mut rlp)))
+            .map(|mut rlp: rlp_rs::Rlp| TransactionEnvelope::from_raw_rlp(&mut rlp))
             .collect::<Result<_, RlpError>>()?;
-        dbg!("bbbbbbbbb");
 
         let uncles_rlp = &mut rlp_iter.next().ok_or(RlpError::MissingBytes)?;
         let uncles_iter = &mut uncles_rlp
@@ -50,7 +52,11 @@ impl Block {
             .into_iter();
 
         let uncles: Vec<_> = uncles_iter
-            .map(Header::from_raw_rlp)
+            .map(if unknown {
+                Header::unknown_from_raw_rlp
+            } else {
+                Header::from_raw_rlp
+            })
             .collect::<Result<_, RlpError>>()?;
 
         Ok(Block {
@@ -58,6 +64,14 @@ impl Block {
             transactions,
             uncles,
         })
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        Self::_from_bytes(bytes, false)
+    }
+
+    pub fn unknown_from_bytes(bytes: &[u8]) -> Result<Self, RlpError> {
+        Self::_from_bytes(bytes, true)
     }
 }
 
@@ -165,156 +179,36 @@ define_header! {
     }
 }
 
+macro_rules! field_impl {
+    ($field:ident, $ty:ty) => {
+        pub fn $field(&self) -> &$ty {
+            match self {
+                Header::Legacy { $field, .. }
+                | Header::London { $field, .. }
+                | Header::Shanghai { $field, .. }
+                | Header::Cancun { $field, .. }
+                | Header::Unknown { $field, .. } => $field,
+            }
+        }
+    };
+}
+
 impl Header {
-    pub fn parent_hash(&self) -> &B32 {
-        match self {
-            Header::Legacy { parent_hash, .. }
-            | Header::London { parent_hash, .. }
-            | Header::Shanghai { parent_hash, .. }
-            | Header::Cancun { parent_hash, .. }
-            | Header::Unknown { parent_hash, .. } => parent_hash,
-        }
-    }
-
-    pub fn uncle_hash(&self) -> &B32 {
-        match self {
-            Header::Legacy { uncle_hash, .. }
-            | Header::London { uncle_hash, .. }
-            | Header::Shanghai { uncle_hash, .. }
-            | Header::Cancun { uncle_hash, .. }
-            | Header::Unknown { uncle_hash, .. } => uncle_hash,
-        }
-    }
-
-    pub fn coinbase(&self) -> &Address {
-        match self {
-            Header::Legacy { coinbase, .. }
-            | Header::London { coinbase, .. }
-            | Header::Shanghai { coinbase, .. }
-            | Header::Cancun { coinbase, .. }
-            | Header::Unknown { coinbase, .. } => coinbase,
-        }
-    }
-
-    pub fn state_root(&self) -> &B32 {
-        match self {
-            Header::Legacy { state_root, .. }
-            | Header::London { state_root, .. }
-            | Header::Shanghai { state_root, .. }
-            | Header::Cancun { state_root, .. }
-            | Header::Unknown { state_root, .. } => state_root,
-        }
-    }
-
-    pub fn tx_root(&self) -> &B32 {
-        match self {
-            Header::Legacy { tx_root, .. }
-            | Header::London { tx_root, .. }
-            | Header::Shanghai { tx_root, .. }
-            | Header::Cancun { tx_root, .. }
-            | Header::Unknown { tx_root, .. } => tx_root,
-        }
-    }
-
-    pub fn receipt_hash(&self) -> &B32 {
-        match self {
-            Header::Legacy { receipt_hash, .. }
-            | Header::London { receipt_hash, .. }
-            | Header::Shanghai { receipt_hash, .. }
-            | Header::Cancun { receipt_hash, .. }
-            | Header::Unknown { receipt_hash, .. } => receipt_hash,
-        }
-    }
-
-    pub fn bloom(&self) -> &Bloom {
-        match self {
-            Header::Legacy { bloom, .. }
-            | Header::London { bloom, .. }
-            | Header::Shanghai { bloom, .. }
-            | Header::Cancun { bloom, .. }
-            | Header::Unknown { bloom, .. } => bloom,
-        }
-    }
-
-    pub fn difficulty(&self) -> &U256 {
-        match self {
-            Header::Legacy { difficulty, .. }
-            | Header::London { difficulty, .. }
-            | Header::Shanghai { difficulty, .. }
-            | Header::Cancun { difficulty, .. }
-            | Header::Unknown { difficulty, .. } => difficulty,
-        }
-    }
-
-    pub fn number(&self) -> &U256 {
-        match self {
-            Header::Legacy { number, .. }
-            | Header::London { number, .. }
-            | Header::Shanghai { number, .. }
-            | Header::Cancun { number, .. }
-            | Header::Unknown { number, .. } => number,
-        }
-    }
-
-    pub fn gas_limit(&self) -> &u64 {
-        match self {
-            Header::Legacy { gas_limit, .. }
-            | Header::London { gas_limit, .. }
-            | Header::Shanghai { gas_limit, .. }
-            | Header::Cancun { gas_limit, .. }
-            | Header::Unknown { gas_limit, .. } => gas_limit,
-        }
-    }
-
-    pub fn gas_used(&self) -> &u64 {
-        match self {
-            Header::Legacy { gas_used, .. }
-            | Header::London { gas_used, .. }
-            | Header::Shanghai { gas_used, .. }
-            | Header::Cancun { gas_used, .. }
-            | Header::Unknown { gas_used, .. } => gas_used,
-        }
-    }
-
-    pub fn time(&self) -> &u64 {
-        match self {
-            Header::Legacy { time, .. }
-            | Header::London { time, .. }
-            | Header::Shanghai { time, .. }
-            | Header::Cancun { time, .. }
-            | Header::Unknown { time, .. } => time,
-        }
-    }
-
-    pub fn extra(&self) -> &Vec<u8> {
-        match self {
-            Header::Legacy { extra, .. }
-            | Header::London { extra, .. }
-            | Header::Shanghai { extra, .. }
-            | Header::Cancun { extra, .. }
-            | Header::Unknown { extra, .. } => extra,
-        }
-    }
-
-    pub fn mix_digest(&self) -> &B32 {
-        match self {
-            Header::Legacy { mix_digest, .. }
-            | Header::London { mix_digest, .. }
-            | Header::Shanghai { mix_digest, .. }
-            | Header::Cancun { mix_digest, .. }
-            | Header::Unknown { mix_digest, .. } => mix_digest,
-        }
-    }
-
-    pub fn nonce(&self) -> &Nonce {
-        match self {
-            Header::Legacy { nonce, .. }
-            | Header::London { nonce, .. }
-            | Header::Shanghai { nonce, .. }
-            | Header::Cancun { nonce, .. }
-            | Header::Unknown { nonce, .. } => nonce,
-        }
-    }
+    field_impl!(parent_hash, B32);
+    field_impl!(uncle_hash, B32);
+    field_impl!(coinbase, Address);
+    field_impl!(state_root, B32);
+    field_impl!(tx_root, B32);
+    field_impl!(receipt_hash, B32);
+    field_impl!(bloom, Bloom);
+    field_impl!(difficulty, U256);
+    field_impl!(number, U256);
+    field_impl!(gas_limit, u64);
+    field_impl!(gas_used, u64);
+    field_impl!(time, u64);
+    field_impl!(extra, Vec<u8>);
+    field_impl!(mix_digest, B32);
+    field_impl!(nonce, Nonce);
 }
 
 macro_rules! common_impl {
@@ -440,13 +334,22 @@ impl Header {
 
         let common = Self::common_from_raw_rlp(&mut rlp)?;
 
-        todo!();
-        // let rest = rlp
-        //     .into_iter()
-        //     .map(pack_rlp)
-        //     .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        let RecursiveBytes::Nested(rest) = rlp.pop_front().ok_or(RlpError::ExpectedList)? else {
+            return Err(RlpError::ExpectedList);
+        };
+        if rlp.pop_front().is_some() {
+            return Err(RlpError::InvalidLength);
+        }
 
-        // Ok(common_impl!(Unknown, common, { rest }))
+        let rest = rest
+            .into_iter()
+            .map(|rec| match rec {
+                RecursiveBytes::Bytes(bytes) => Ok(bytes.into()),
+                _ => Err(RlpError::ExpectedBytes),
+            })
+            .collect::<Result<Vec<_>, RlpError>>()?;
+
+        Ok(common_impl!(Unknown, common, { rest }))
     }
 }
 
@@ -1147,6 +1050,34 @@ mod tests {
         let block = Block::default();
         let bytes = rlp_rs::to_bytes(&block).unwrap();
         let block2 = Block::from_bytes(&bytes).unwrap();
+        assert_eq!(block, block2);
+    }
+
+    #[test]
+    fn block_unknown() {
+        let block = Block {
+            header: Header::Unknown {
+                parent_hash: Default::default(),
+                uncle_hash: Default::default(),
+                coinbase: Default::default(),
+                state_root: Default::default(),
+                tx_root: Default::default(),
+                receipt_hash: Default::default(),
+                bloom: Default::default(),
+                difficulty: Default::default(),
+                number: Default::default(),
+                gas_limit: Default::default(),
+                gas_used: Default::default(),
+                time: Default::default(),
+                extra: Default::default(),
+                mix_digest: Default::default(),
+                nonce: Default::default(),
+                rest: vec![vec![10; 2].into(); 10],
+            },
+            ..Default::default()
+        };
+        let bytes = rlp_rs::to_bytes(&block).unwrap();
+        let block2 = Block::unknown_from_bytes(&bytes).unwrap();
         assert_eq!(block, block2);
     }
 }
