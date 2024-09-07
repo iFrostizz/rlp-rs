@@ -209,19 +209,11 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 impl<'de, 'a> Deserializer<'de> for &'a mut Rlp {
     type Error = RlpError;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        let bytes = match self.need_next()? {
-            RecursiveBytes::Bytes(bytes) => bytes,
-            RecursiveBytes::Nested(recs) => {
-                crate::pack_rlp(Rlp::new_unary(RecursiveBytes::Nested(recs)))?
-            }
-            RecursiveBytes::EmptyList => unimplemented!(), // TODO
-        };
-
-        visitor.visit_bytes(&bytes)
+        unimplemented!();
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>

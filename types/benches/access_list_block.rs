@@ -7,7 +7,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("1000 access list block decode with 2 tx", |b| {
         b.iter(|| {
             for _ in 0..1000 {
-                let _: Block = rlp_rs::from_bytes(&bytes).unwrap();
+                let _: Block = Block::from_bytes(&bytes).unwrap();
             }
         })
     });

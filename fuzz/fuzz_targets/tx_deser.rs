@@ -4,7 +4,7 @@ use libfuzzer_sys::{fuzz_target, Corpus};
 use rlp_types::TransactionEnvelope;
 
 fuzz_target!(|tx_bytes: &[u8]| -> Corpus {
-    let tx: TransactionEnvelope = match rlp_rs::from_bytes(tx_bytes) {
+    let tx: TransactionEnvelope = match TransactionEnvelope::from_bytes(tx_bytes) {
         Ok(tx) => tx,
         Err(_) => return Corpus::Reject,
     };
