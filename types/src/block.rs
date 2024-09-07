@@ -1,5 +1,5 @@
 use crate::primitives::{Address, Bloom, Nonce, U256};
-use crate::TransactionEnvelope;
+use crate::{TransactionEnvelope, B32};
 use rlp_rs::{pack_rlp, unpack_rlp, RecursiveBytes, Rlp, RlpError};
 use serde::{de, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
@@ -62,12 +62,12 @@ impl Block {
 
 #[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq, Clone, Default)]
 pub struct CommonHeader {
-    pub parent_hash: U256,
-    pub uncle_hash: U256,
+    pub parent_hash: B32,
+    pub uncle_hash: B32,
     pub coinbase: Address,
-    pub state_root: U256,
-    pub tx_root: U256,
-    pub receipt_hash: U256,
+    pub state_root: B32,
+    pub tx_root: B32,
+    pub receipt_hash: B32,
     pub bloom: Bloom,
     pub difficulty: U256,
     pub number: U256,
@@ -76,7 +76,7 @@ pub struct CommonHeader {
     pub time: u64,
     #[serde(with = "serde_bytes")]
     pub extra: Vec<u8>,
-    pub mix_digest: U256,
+    pub mix_digest: B32,
     pub nonce: Nonce,
 }
 
@@ -99,12 +99,12 @@ macro_rules! define_header {
         pub enum Header {
             $(
                 $name {
-                    parent_hash: U256,
-                    uncle_hash: U256,
+                    parent_hash: B32,
+                    uncle_hash: B32,
                     coinbase: Address,
-                    state_root: U256,
-                    tx_root: U256,
-                    receipt_hash: U256,
+                    state_root: B32,
+                    tx_root: B32,
+                    receipt_hash: B32,
                     bloom: Bloom,
                     difficulty: U256,
                     number: U256,
@@ -113,7 +113,7 @@ macro_rules! define_header {
                     time: u64,
                     #[serde(with = "serde_bytes")]
                     extra: Vec<u8>,
-                    mix_digest: U256,
+                    mix_digest: B32,
                     nonce: Nonce,
                     $($extra_field: $extra_type),*
                 },
@@ -129,18 +129,50 @@ define_header! {
     },
     Shanghai {
         base_fee: U256,
-        withdrawal_root: U256
+        withdrawal_root: B32
     },
     Cancun {
         base_fee: U256,
-        withdrawal_root: U256,
+        withdrawal_root: B32,
         blob_gas_used: u64,
         excess_blob_gas: u64,
-        parent_beacon_block_root: U256
+        parent_beacon_block_root: B32
     },
     Unknown {
         rest: Vec<Vec<u8>>
     }
+}
+
+macro_rules! field_impl {
+    ($field:ident, $ty:ty) => {
+        pub fn $field(&self) -> &$ty {
+            match self {
+                Header::Legacy { $field, .. }
+                | Header::London { $field, .. }
+                | Header::Shanghai { $field, .. }
+                | Header::Cancun { $field, .. }
+                | Header::Unknown { $field, .. } => $field,
+            }
+        }
+    };
+}
+
+impl Header {
+    field_impl!(parent_hash, B32);
+    field_impl!(uncle_hash, B32);
+    field_impl!(coinbase, Address);
+    field_impl!(state_root, B32);
+    field_impl!(tx_root, B32);
+    field_impl!(receipt_hash, B32);
+    field_impl!(bloom, Bloom);
+    field_impl!(difficulty, U256);
+    field_impl!(number, U256);
+    field_impl!(gas_limit, u64);
+    field_impl!(gas_used, u64);
+    field_impl!(time, u64);
+    field_impl!(extra, Vec<u8>);
+    field_impl!(mix_digest, B32);
+    field_impl!(nonce, Nonce);
 }
 
 struct HeaderVisitor;
@@ -328,7 +360,7 @@ impl Header {
                             // Header::London(LondonHeader { common, base_fee })
                             common_impl!(London, common, { base_fee })
                         } else {
-                            let withdrawal_root = <U256>::deserialize(
+                            let withdrawal_root = <B32>::deserialize(
                                 &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                             )
                             .map_err(|_| RlpError::MissingBytes)?;
@@ -343,7 +375,7 @@ impl Header {
                                 let excess_blob_gas = u64::deserialize(
                                     &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                                 )?;
-                                let parent_beacon_block_root = U256::deserialize(
+                                let parent_beacon_block_root = B32::deserialize(
                                     &mut rlp.pop_front().ok_or(RlpError::MissingBytes)?.into_rlp(),
                                 )?;
 

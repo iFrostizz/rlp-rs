@@ -79,5 +79,6 @@ macro_rules! vec_type {
 
 vec_type!(Address, 20);
 vec_type!(U256, 32);
+vec_type!(B32, 32);
 vec_type!(Bloom, 256);
 vec_type!(Nonce, 8);
