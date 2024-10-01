@@ -50,7 +50,7 @@ impl Rlp {
     }
 
     pub(crate) fn need_nested(&mut self) -> Result<Vec<RecursiveBytes>, RlpError> {
-        let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(RlpError::MissingBytes)? else {
+        let RecursiveBytes::Nested(rec) = self.0.pop_front().ok_or(RlpError::MissingList)? else {
             return Err(RlpError::ExpectedList);
         };
         Ok(rec)

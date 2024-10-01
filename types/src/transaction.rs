@@ -172,25 +172,27 @@ impl TransactionEnvelope {
     }
 
     pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
-        let (tx_type, tx_rlp) = match rlp.pop_front() {
+        let (tx_type, mut tx_rlp) = match rlp.pop_front() {
             Some(RecursiveBytes::Bytes(bytes)) => {
                 let tx_type = *bytes.first().ok_or(RlpError::MissingBytes)?;
-                if tx_type > 3 {
-                    // TODO brittle
-                    return Err(RlpError::InvalidBytes);
-                }
+                let tx_rlp = match rlp.pop_front() {
+                    None => unpack_rlp(&bytes[1..])?,
+                    Some(rec) => {
+                        if rlp.get(0).is_some() {
+                            return Err(RlpError::InvalidLength);
+                        }
 
-                if rlp.get(1).is_some() {
-                    return Err(RlpError::InvalidLength);
-                }
+                        Rlp::new_unary(rec)
+                    }
+                };
 
-                (tx_type, &mut unpack_rlp(&bytes[1..])?)
+                (tx_type, tx_rlp)
             }
             None => return Err(RlpError::InvalidBytes),
-            Some(nest) => (0, &mut Rlp::new_unary(nest)),
+            Some(nest) => (0, Rlp::new_unary(nest)),
         };
 
-        Self::decode_transaction(tx_rlp, tx_type)
+        Self::decode_transaction(&mut tx_rlp, tx_type)
     }
 }
 

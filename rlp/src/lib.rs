@@ -39,6 +39,7 @@ pub fn unpack_rlp(bytes: &[u8]) -> Result<Rlp, RlpError> {
 #[derive(Debug)]
 pub enum RlpError {
     MissingBytes,
+    MissingList,
     TrailingBytes,
     ExpectedBytes,
     ExpectedList,
@@ -64,6 +65,7 @@ impl Display for RlpError {
         match self {
             RlpError::Message(message) => formatter.write_str(message),
             RlpError::MissingBytes => formatter.write_str("missing bytes after discriminant byte"),
+            RlpError::MissingList => formatter.write_str("missing list"),
             RlpError::ExpectedList => formatter.write_str("expected list, got bytes"),
             RlpError::ExpectedBytes => formatter.write_str("expected bytes, got list"),
             RlpError::InvalidBytes => formatter.write_str("invalid bytes"),
