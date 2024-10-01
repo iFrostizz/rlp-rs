@@ -508,14 +508,6 @@ impl Header {
         }
 
         let common = Self::common_from_raw_rlp(&mut rlp)?;
-        dbg!(&rlp);
-
-        // let RecursiveBytes::Nested(rest) = rlp.pop_front().ok_or(RlpError::ExpectedList)? else {
-        //     return Err(RlpError::ExpectedList);
-        // };
-        // if rlp.pop_front().is_some() {
-        //     return Err(RlpError::InvalidLength);
-        // }
 
         let mut rest = Vec::new();
         while let Some(rec) = rlp.pop_front() {
@@ -665,7 +657,7 @@ mod tests {
         let mut block_rlp = Rlp::new_unary(rlp.pop_front().unwrap())
             .flatten_nested()
             .unwrap();
-        let header_rlp = dbg!(Rlp::new_unary(block_rlp.pop_front().unwrap()));
+        let header_rlp = Rlp::new_unary(block_rlp.pop_front().unwrap());
         let header_bytes = rlp_rs::pack_rlp(header_rlp).unwrap();
         let header: Header = rlp_rs::from_bytes(&header_bytes).unwrap();
 
