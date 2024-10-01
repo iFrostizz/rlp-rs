@@ -114,7 +114,6 @@ macro_rules! define_header {
         ),* $(,)?
     ) => {
         #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-        // #[serde(untagged)] // NOTE untagged only works for Serialization
         pub enum Header {
             $(
                 $name {
@@ -130,7 +129,6 @@ macro_rules! define_header {
                     gas_limit: u64,
                     gas_used: u64,
                     time: u64,
-                    // #[serde(with = "serde_bytes")]
                     extra: Vec<u8>,
                     mix_digest: B32,
                     nonce: Nonce,
@@ -450,7 +448,6 @@ impl Header {
                         .map_err(|_| RlpError::MissingBytes)?;
 
                         if fields == london_fields {
-                            // Header::London(LondonHeader { common, base_fee })
                             common_impl!(London, common, { base_fee })
                         } else {
                             let withdrawal_root = <B32>::deserialize(
