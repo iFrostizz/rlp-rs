@@ -172,7 +172,6 @@ impl TransactionEnvelope {
     }
 
     pub(crate) fn from_raw_rlp(rlp: &mut Rlp) -> Result<Self, RlpError> {
-        dbg!(&rlp);
         let (tx_type, tx_rlp) = match rlp.pop_front() {
             Some(RecursiveBytes::Bytes(bytes)) => {
                 let tx_type = *bytes.first().ok_or(RlpError::MissingBytes)?;

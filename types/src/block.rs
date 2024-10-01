@@ -1,6 +1,7 @@
 use crate::primitives::{Address, Bloom, Nonce, U256};
 use crate::{TransactionEnvelope, B32};
 use rlp_rs::{unpack_rlp, RecursiveBytes, Rlp, RlpError};
+use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
@@ -112,8 +113,7 @@ macro_rules! define_header {
             }
         ),* $(,)?
     ) => {
-        #[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-        #[serde(untagged)] // NOTE untagged only works for Serialization
+        #[derive(Debug, PartialEq, Eq, Hash, Clone)]
         pub enum Header {
             $(
                 $name {
@@ -129,7 +129,6 @@ macro_rules! define_header {
                     gas_limit: u64,
                     gas_used: u64,
                     time: u64,
-                    #[serde(with = "serde_bytes")]
                     extra: Vec<u8>,
                     mix_digest: B32,
                     nonce: Nonce,
@@ -179,6 +178,180 @@ define_header! {
     }
 }
 
+impl Header {
+    fn fields(&self) -> usize {
+        match self {
+            Self::Legacy { .. } => 15,
+            Self::London { .. } => 16,
+            Self::Shanghai { .. } => 17,
+            Self::Cancun { .. } => 20,
+            Self::Unknown { .. } => 16,
+        }
+    }
+}
+
+impl Serialize for Header {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Legacy {
+                parent_hash,
+                uncle_hash,
+                coinbase,
+                state_root,
+                tx_root,
+                receipt_hash,
+                bloom,
+                difficulty,
+                number,
+                gas_limit,
+                gas_used,
+                time,
+                extra,
+                mix_digest,
+                nonce,
+            }
+            | Self::London {
+                parent_hash,
+                uncle_hash,
+                coinbase,
+                state_root,
+                tx_root,
+                receipt_hash,
+                bloom,
+                difficulty,
+                number,
+                gas_limit,
+                gas_used,
+                time,
+                extra,
+                mix_digest,
+                nonce,
+                ..
+            }
+            | Self::Shanghai {
+                parent_hash,
+                uncle_hash,
+                coinbase,
+                state_root,
+                tx_root,
+                receipt_hash,
+                bloom,
+                difficulty,
+                number,
+                gas_limit,
+                gas_used,
+                time,
+                extra,
+                mix_digest,
+                nonce,
+                ..
+            }
+            | Self::Cancun {
+                parent_hash,
+                uncle_hash,
+                coinbase,
+                state_root,
+                tx_root,
+                receipt_hash,
+                bloom,
+                difficulty,
+                number,
+                gas_limit,
+                gas_used,
+                time,
+                extra,
+                mix_digest,
+                nonce,
+                ..
+            }
+            | Self::Unknown {
+                parent_hash,
+                uncle_hash,
+                coinbase,
+                state_root,
+                tx_root,
+                receipt_hash,
+                bloom,
+                difficulty,
+                number,
+                gas_limit,
+                gas_used,
+                time,
+                extra,
+                mix_digest,
+                nonce,
+                ..
+            } => {
+                let mut serializer = serializer.serialize_struct("Header", self.fields())?;
+                serializer.serialize_field("parent_hash", parent_hash)?;
+                serializer.serialize_field("uncle_hash", uncle_hash)?;
+                serializer.serialize_field("coinbase", coinbase)?;
+                serializer.serialize_field("state_root", state_root)?;
+                serializer.serialize_field("tx_root", tx_root)?;
+                serializer.serialize_field("receipt_hash", receipt_hash)?;
+                serializer.serialize_field("bloom", bloom)?;
+                serializer.serialize_field("difficulty", difficulty)?;
+                serializer.serialize_field("number", number)?;
+                serializer.serialize_field("gas_limit", gas_limit)?;
+                serializer.serialize_field("gas_used", gas_used)?;
+                serializer.serialize_field("time", time)?;
+                serializer.serialize_field("extra", &serde_bytes::Bytes::new(extra))?;
+                serializer.serialize_field("mix_digest", mix_digest)?;
+                serializer.serialize_field("nonce", nonce)?;
+                match self {
+                    Self::Legacy { .. } => serializer.end(),
+                    Self::Unknown { rest, .. } => {
+                        for bytes in rest {
+                            serializer.serialize_field("rest", bytes)?;
+                        }
+                        serializer.end()
+                    }
+                    Self::London { base_fee, .. }
+                    | Self::Shanghai { base_fee, .. }
+                    | Self::Cancun { base_fee, .. } => {
+                        serializer.serialize_field("base_fee", base_fee)?;
+                        match self {
+                            Self::London { .. } => serializer.end(),
+                            Self::Shanghai {
+                                withdrawal_root, ..
+                            }
+                            | Self::Cancun {
+                                withdrawal_root, ..
+                            } => {
+                                serializer.serialize_field("withdrawal_root", withdrawal_root)?;
+                                match self {
+                                    Self::Shanghai { .. } => serializer.end(),
+                                    Self::Cancun {
+                                        blob_gas_used,
+                                        excess_blob_gas,
+                                        parent_beacon_block_root,
+                                        ..
+                                    } => {
+                                        serializer
+                                            .serialize_field("blob_gas_used", blob_gas_used)?;
+                                        serializer
+                                            .serialize_field("excess_blob_gas", excess_blob_gas)?;
+                                        serializer.serialize_field(
+                                            "parent_beacon_block_root",
+                                            parent_beacon_block_root,
+                                        )?;
+                                        serializer.end()
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 macro_rules! field_impl {
     ($field:ident, $ty:ty) => {
         pub fn $field(&self) -> &$ty {
@@ -212,11 +385,11 @@ impl Header {
 }
 
 macro_rules! common_impl {
-    ($lit:ident, $common:ident) => {
-        common_impl!($lit, $common, {})
+    ($name:ident, $common:ident) => {
+        common_impl!($name, $common, {})
     };
-    ($lit:ident, $common:ident, { $($rest:tt)* }) => {
-        Header::$lit {
+    ($name:ident, $common:ident, { $($rest:tt)* }) => {
+        Header::$name {
             parent_hash: $common.parent_hash,
             uncle_hash: $common.uncle_hash,
             coinbase: $common.coinbase,
@@ -275,7 +448,6 @@ impl Header {
                         .map_err(|_| RlpError::MissingBytes)?;
 
                         if fields == london_fields {
-                            // Header::London(LondonHeader { common, base_fee })
                             common_impl!(London, common, { base_fee })
                         } else {
                             let withdrawal_root = <B32>::deserialize(
@@ -334,20 +506,14 @@ impl Header {
 
         let common = Self::common_from_raw_rlp(&mut rlp)?;
 
-        let RecursiveBytes::Nested(rest) = rlp.pop_front().ok_or(RlpError::ExpectedList)? else {
-            return Err(RlpError::ExpectedList);
-        };
-        if rlp.pop_front().is_some() {
-            return Err(RlpError::InvalidLength);
+        let mut rest = Vec::new();
+        while let Some(rec) = rlp.pop_front() {
+            let bytes = match rec {
+                RecursiveBytes::Bytes(bytes) => bytes.into(),
+                _ => return Err(RlpError::ExpectedBytes),
+            };
+            rest.push(bytes);
         }
-
-        let rest = rest
-            .into_iter()
-            .map(|rec| match rec {
-                RecursiveBytes::Bytes(bytes) => Ok(bytes.into()),
-                _ => Err(RlpError::ExpectedBytes),
-            })
-            .collect::<Result<Vec<_>, RlpError>>()?;
 
         Ok(common_impl!(Unknown, common, { rest }))
     }
@@ -488,7 +654,7 @@ mod tests {
         let mut block_rlp = Rlp::new_unary(rlp.pop_front().unwrap())
             .flatten_nested()
             .unwrap();
-        let header_rlp = dbg!(Rlp::new_unary(block_rlp.pop_front().unwrap()));
+        let header_rlp = Rlp::new_unary(block_rlp.pop_front().unwrap());
         let header_bytes = rlp_rs::pack_rlp(header_rlp).unwrap();
         let header: Header = rlp_rs::from_bytes(&header_bytes).unwrap();
 
